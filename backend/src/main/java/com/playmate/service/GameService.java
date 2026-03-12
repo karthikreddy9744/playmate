@@ -381,12 +381,10 @@ public class GameService {
             // fallback to zero pending
             pending = 0;
         }
-        // Available slots: currentPlayers includes creator, so subtract 1 for the host
-        int currentPlayers = Objects.requireNonNullElse(game.getCurrentPlayers(), 0);
-        int actualJoined = currentPlayers - 1;
-        if (actualJoined < 0) actualJoined = 0;
+        // Available slots: currentPlayers includes creator + pre-confirmed friends
+        int currentPlayers = Objects.requireNonNullElse(game.getCurrentPlayers(), 1);
         response.setAvailableSlots(game.getMaxPlayers() != null
-                ? game.getMaxPlayers() - actualJoined - pending : 0);
+                ? game.getMaxPlayers() - currentPlayers - pending : 0);
         response.setCostPerPerson(game.getPricePerPlayer());
         response.setLocationLat(game.getLocationLat());
         response.setLocationLng(game.getLocationLng());
@@ -406,9 +404,11 @@ public class GameService {
         response.setUpdatedAt(game.getUpdatedAt() != null ? game.getUpdatedAt().toString() : null);
         response.setIsCancelled(game.getIsCancelled());
         // Exclude the game creator from participant count and IDs (creator is the host, not a participant)
-        long joinedCount = game.getParticipants() != null
+        // But include the pre-confirmed friends in the participant count
+        int preConfirmedFriends = currentPlayers - 1;
+        long joinedCount = (game.getParticipants() != null
                 ? game.getParticipants().stream().filter(u -> !u.getId().equals(game.getCreatedBy())).count()
-                : 0;
+                : 0) + preConfirmedFriends;
         response.setParticipantCount((int) joinedCount);
         response.setParticipantIds(game.getParticipants() != null
                 ? game.getParticipants().stream().map(User::getId).filter(id -> !id.equals(game.getCreatedBy())).collect(java.util.stream.Collectors.toList())
@@ -428,7 +428,7 @@ public class GameService {
                 status = "COMPLETED";
             } else if (now.isAfter(game.getGameDateTime())) {
                 status = "LIVE";
-            } else if (game.getMaxPlayers() != null && actualJoined >= game.getMaxPlayers()) {
+            } else if (game.getMaxPlayers() != null && currentPlayers >= game.getMaxPlayers()) {
                 status = "FULL";
             } else {
                 status = "UPCOMING";
