@@ -1,0 +1,50 @@
+# Firebase service account — NEVER commit this
+backend/src/main/resources/firebase-service-account.json
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.development
+backend/.env
+frontend/.env
+
+# Backend — Build outputs
+backend/target/
+
+# Frontend — Build outputs & dependencies
+frontend/dist/
+frontend/node_modules/
+
+# IDE — Eclipse
+*.classpath
+*.project
+*.settings/
+*.factorypath
+
+# IDE — IntelliJ
+.idea/
+*.iml
+out/
+
+# IDE — VS Code
+.vscode/
+
+# IDE — NetBeans
+nbproject/
+nbactions.xml
+nb-configuration.xml
+
+# Java upgrade tool artifacts
+backend/.github/java-upgrade/
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Maven wrapper downloaded jar
+backend/.mvn/wrapper/maven-wrapper.jar

@@ -1,0 +1,96 @@
+{
+  "properties": [
+    {
+      "name": "jwt.secret",
+      "type": "java.lang.String",
+      "description": "Secret key used to sign JWT tokens"
+    },
+    {
+      "name": "jwt.expiration",
+      "type": "java.lang.Long",
+      "description": "JWT token expiration time in milliseconds",
+      "defaultValue": 3600000
+    },
+    {
+      "name": "jwt.refresh.expiration",
+      "type": "java.lang.Long",
+      "description": "JWT refresh token expiration time in milliseconds",
+      "defaultValue": 604800000
+    },
+    {
+      "name": "brevo.api.key",
+      "type": "java.lang.String",
+      "description": "Brevo (Sendinblue) API key for email service"
+    },
+    {
+      "name": "brevo.sender.email",
+      "type": "java.lang.String",
+      "description": "Sender email address for Brevo emails"
+    },
+    {
+      "name": "brevo.sender.name",
+      "type": "java.lang.String",
+      "description": "Sender display name for Brevo emails"
+    },
+    {
+      "name": "firebase.api.key",
+      "type": "java.lang.String",
+      "description": "Firebase API key"
+    },
+    {
+      "name": "firebase.auth.domain",
+      "type": "java.lang.String",
+      "description": "Firebase auth domain"
+    },
+    {
+      "name": "firebase.project.id",
+      "type": "java.lang.String",
+      "description": "Firebase project ID"
+    },
+    {
+      "name": "firebase.storage.bucket",
+      "type": "java.lang.String",
+      "description": "Firebase storage bucket"
+    },
+    {
+      "name": "firebase.messaging.sender.id",
+      "type": "java.lang.String",
+      "description": "Firebase messaging sender ID"
+    },
+    {
+      "name": "firebase.app.id",
+      "type": "java.lang.String",
+      "description": "Firebase app ID"
+    },
+    {
+      "name": "firebase.measurement.id",
+      "type": "java.lang.String",
+      "description": "Firebase measurement ID"
+    },
+    {
+      "name": "cors.allowed-origins",
+      "type": "java.lang.String",
+      "description": "Comma-separated list of allowed CORS origins"
+    },
+    {
+      "name": "cloudinary.cloud.name",
+      "type": "java.lang.String",
+      "description": "Cloudinary cloud name"
+    },
+    {
+      "name": "cloudinary.api.key",
+      "type": "java.lang.String",
+      "description": "Cloudinary API key"
+    },
+    {
+      "name": "cloudinary.api.secret",
+      "type": "java.lang.String",
+      "description": "Cloudinary API secret"
+    },
+    {
+      "name": "playmate.msg.encryption-key",
+      "type": "java.lang.String",
+      "description": "Base64-encoded 256-bit AES key for message encryption at rest (AES-256-GCM)"
+    }
+  ]
+}
