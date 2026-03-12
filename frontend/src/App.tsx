@@ -1,4 +1,4 @@
-import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
+import { Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom'
 import { ToastContainer, toast } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 import { useState, useEffect, lazy, Suspense } from 'react'
@@ -9,6 +9,7 @@ import { useAuth } from './hooks/useAuth'
 import { usePWA } from './hooks/usePWA'
 import { auth } from './lib/firebase'
 import { clearToken, api } from './lib/api'
+import { markLoggedOut } from './hooks/useAuth'
 
 /* ─── Lazy-loaded pages (code-split per route) ─── */
 const Home = lazy(() => import('./pages/Home'))
@@ -144,11 +145,16 @@ export default function App() {
     setShowInstallBanner(false)
   }, [canInstall])
 
+  const navigate = useNavigate()
+
   const handleLogout = async () => {
-    try { await auth.signOut(); clearToken(); toast.success('Logged out!') }
-    catch (e: any) { toast.error(e.message) }
+    markLoggedOut()
+    clearToken()
+    auth.signOut().catch(console.error) // Fire and forget
+    toast.success('Logged out!')
     setMobileOpen(false)
     setShowNotifPanel(false)
+    navigate('/login', { replace: true })
   }
 
   const navLinks = [
