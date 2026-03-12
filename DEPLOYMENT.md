@@ -86,29 +86,30 @@ Scroll down to **"Environment Variables"** and add each variable from the table 
 
 Click **"Add Environment Variable"** for each:
 
-| Variable | Value |
+| Variable | Value (from root `.env`) |
 | --- | --- |
-| `BACKEND_PORT` | `8080` |
 | `PORT` | `8080` |
 | `SPRING_PROFILES_ACTIVE` | `prod` |
-| `SPRING_DATASOURCE_URL` | `jdbc:postgresql://aws-1-ap-south-1.pooler.supabase.com:5432/postgres` |
-| `SPRING_DATASOURCE_USERNAME` | Your Supabase username |
-| `SPRING_DATASOURCE_PASSWORD` | Your Supabase password |
-| `JWT_SECRET` | Your JWT secret |
-| `JWT_EXPIRATION` | `3600000` |
-| `REDIS_HOST` | Your Redis Cloud host |
-| `REDIS_PORT` | Your Redis Cloud port |
-| `REDIS_PASSWORD` | Your Redis Cloud password |
-| `CLOUDINARY_CLOUD_NAME` | `playmate` |
-| `CLOUDINARY_API_KEY` | Your Cloudinary key |
-| `CLOUDINARY_API_SECRET` | Your Cloudinary secret |
-| `BREVO_API_KEY` | Your Brevo key |
-| `BREVO_SENDER_EMAIL` | Your sender email |
-| `BREVO_SENDER_NAME` | `PlayMate` |
-| `FIREBASE_PROJECT_ID` | `playmate-4b25d` |
-| `PLAYMATE_MSG_ENCRYPTION_KEY` | Your AES-256 key |
-| `ALLOWED_ORIGINS` | `https://playmate.vercel.app` (update after Vercel deploy) |
+| `SPRING_DATASOURCE_URL` | Same as `SPRING_DATASOURCE_URL` in `.env` |
+| `SPRING_DATASOURCE_USERNAME` | Same as `SPRING_DATASOURCE_USERNAME` in `.env` |
+| `SPRING_DATASOURCE_PASSWORD` | Same as `SPRING_DATASOURCE_PASSWORD` in `.env` |
+| `JWT_SECRET` | Same as `JWT_SECRET` in `.env` |
+| `JWT_EXPIRATION` | Same as `JWT_EXPIRATION` in `.env` (e.g. `3600000`) |
+| `REDIS_HOST` | Same as `REDIS_HOST` in `.env` |
+| `REDIS_PORT` | Same as `REDIS_PORT` in `.env` |
+| `REDIS_PASSWORD` | Same as `REDIS_PASSWORD` in `.env` |
+| `CLOUDINARY_CLOUD_NAME` | Same as `CLOUDINARY_CLOUD_NAME` in `.env` |
+| `CLOUDINARY_API_KEY` | Same as `CLOUDINARY_API_KEY` in `.env` |
+| `CLOUDINARY_API_SECRET` | Same as `CLOUDINARY_API_SECRET` in `.env` |
+| `BREVO_API_KEY` | Same as `BREVO_API_KEY` in `.env` |
+| `BREVO_SENDER_EMAIL` | Same as `BREVO_SENDER_EMAIL` in `.env` |
+| `BREVO_SENDER_NAME` | Same as `BREVO_SENDER_NAME` in `.env` |
+| `FIREBASE_PROJECT_ID` | Same as `FIREBASE_PROJECT_ID` in `.env` |
+| `PLAYMATE_MSG_ENCRYPTION_KEY` | Same as `PLAYMATE_MSG_ENCRYPTION_KEY` in `.env` |
+| `ALLOWED_ORIGINS` | `https://your-app.vercel.app` (update after Vercel deploy) |
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON` | *(see below)* |
+
+> **Note:** The variable names above are the **exact same names** as in your root `.env` file. Just copy each value directly. The only additions are `PORT` (Render requires this) and `GOOGLE_APPLICATION_CREDENTIALS_JSON` (Firebase service account for cloud). You do **not** need `BACKEND_PORT` on Render — `PORT` is sufficient.
 
 ### Step 4 — Handle Firebase Service Account on Render
 
@@ -167,18 +168,19 @@ Go to **Settings → Environment Variables** and add:
 
 | Variable | Value |
 | --- | --- |
-| `VITE_APP_NAME` | `PlayMate` |
 | `VITE_API_BASE_URL` | `https://playmate-backend.onrender.com/api` |
 | `VITE_WS_BASE_URL` | `https://playmate-backend.onrender.com/ws` |
-| `VITE_FIREBASE_API_KEY` | `AIzaSyCNCUNhrFF57xl0HcNAN3pqKAihJrBWiWk` |
-| `VITE_FIREBASE_AUTH_DOMAIN` | `playmate-4b25d.firebaseapp.com` |
-| `VITE_FIREBASE_PROJECT_ID` | `playmate-4b25d` |
-| `VITE_FIREBASE_STORAGE_BUCKET` | `playmate-4b25d.firebasestorage.app` |
-| `VITE_FIREBASE_MESSAGING_SENDER_ID` | `189801490683` |
-| `VITE_FIREBASE_APP_ID` | `1:189801490683:web:eb10870d14c599272fa85e` |
-| `VITE_FIREBASE_MEASUREMENT_ID` | `G-S2DV3CL17V` |
-| `VITE_CLOUDINARY_CLOUD_NAME` | `playmate` |
-| `VITE_CLOUDINARY_UPLOAD_PRESET` | `playmate-upload` |
+| `VITE_FIREBASE_API_KEY` | Your Firebase API key (from `.env` → `FIREBASE_API_KEY`) |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Your Firebase auth domain (from `.env` → `FIREBASE_AUTH_DOMAIN`) |
+| `VITE_FIREBASE_PROJECT_ID` | Your Firebase project ID (from `.env` → `FIREBASE_PROJECT_ID`) |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Your Firebase storage bucket (from `.env` → `FIREBASE_STORAGE_BUCKET`) |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Your FCM sender ID (from `.env` → `FIREBASE_MESSAGING_SENDER_ID`) |
+| `VITE_FIREBASE_APP_ID` | Your Firebase app ID (from `.env` → `FIREBASE_APP_ID`) |
+| `VITE_FIREBASE_MEASUREMENT_ID` | Your measurement ID (from `.env` → `FIREBASE_MEASUREMENT_ID`) |
+| `VITE_CLOUDINARY_CLOUD_NAME` | Your Cloudinary cloud name (from `.env` → `CLOUDINARY_CLOUD_NAME`) |
+| `VITE_CLOUDINARY_UPLOAD_PRESET` | Your Cloudinary upload preset (e.g. `playmate-upload`) |
+
+> **Mapping from root `.env` to Vercel:** The root `.env` uses names like `FIREBASE_API_KEY`, but Vite requires the `VITE_` prefix. Copy the **values** from your root `.env` and use the `VITE_` prefixed names above in Vercel.
 
 ### Step 4 — Deploy
 
@@ -265,45 +267,44 @@ Open `https://playmate.vercel.app` — you should see the PlayMate homepage.
 
 ### Backend (Render)
 
-| Variable | Description | Example |
+| Variable | Description | Root `.env` name |
 | --- | --- | --- |
-| `BACKEND_PORT` | Server port | `8080` |
-| `PORT` | Render uses this | `8080` |
-| `SPRING_PROFILES_ACTIVE` | Active profile | `prod` |
-| `SPRING_DATASOURCE_URL` | PostgreSQL JDBC URL | `jdbc:postgresql://...` |
-| `SPRING_DATASOURCE_USERNAME` | DB username | `postgres.xxxxx` |
-| `SPRING_DATASOURCE_PASSWORD` | DB password | `***` |
-| `JWT_SECRET` | JWT signing key | `***` |
-| `JWT_EXPIRATION` | Token TTL (ms) | `3600000` |
-| `REDIS_HOST` | Redis host | `redis-xxxxx.cloud.redislabs.com` |
-| `REDIS_PORT` | Redis port | `17229` |
-| `REDIS_PASSWORD` | Redis password | `***` |
-| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud | `playmate` |
-| `CLOUDINARY_API_KEY` | Cloudinary key | `***` |
-| `CLOUDINARY_API_SECRET` | Cloudinary secret | `***` |
-| `BREVO_API_KEY` | Brevo email key | `***` |
-| `BREVO_SENDER_EMAIL` | From email | `playmate2official@gmail.com` |
-| `BREVO_SENDER_NAME` | From name | `PlayMate` |
-| `FIREBASE_PROJECT_ID` | Firebase project | `playmate-4b25d` |
-| `PLAYMATE_MSG_ENCRYPTION_KEY` | AES-256 key | `***` |
-| `ALLOWED_ORIGINS` | CORS origins | `https://playmate.vercel.app` |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | Firebase SA JSON | `{"type":"service_account",...}` |
+| `PORT` | Server port (Render sets this) | `BACKEND_PORT` |
+| `SPRING_PROFILES_ACTIVE` | Active profile | `SPRING_PROFILES_ACTIVE` |
+| `SPRING_DATASOURCE_URL` | PostgreSQL JDBC URL | `SPRING_DATASOURCE_URL` |
+| `SPRING_DATASOURCE_USERNAME` | DB username | `SPRING_DATASOURCE_USERNAME` |
+| `SPRING_DATASOURCE_PASSWORD` | DB password | `SPRING_DATASOURCE_PASSWORD` |
+| `JWT_SECRET` | JWT signing key | `JWT_SECRET` |
+| `JWT_EXPIRATION` | Token TTL (ms) | `JWT_EXPIRATION` |
+| `REDIS_HOST` | Redis host | `REDIS_HOST` |
+| `REDIS_PORT` | Redis port | `REDIS_PORT` |
+| `REDIS_PASSWORD` | Redis password | `REDIS_PASSWORD` |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud | `CLOUDINARY_CLOUD_NAME` |
+| `CLOUDINARY_API_KEY` | Cloudinary key | `CLOUDINARY_API_KEY` |
+| `CLOUDINARY_API_SECRET` | Cloudinary secret | `CLOUDINARY_API_SECRET` |
+| `BREVO_API_KEY` | Brevo email key | `BREVO_API_KEY` |
+| `BREVO_SENDER_EMAIL` | From email | `BREVO_SENDER_EMAIL` |
+| `BREVO_SENDER_NAME` | From name | `BREVO_SENDER_NAME` |
+| `FIREBASE_PROJECT_ID` | Firebase project | `FIREBASE_PROJECT_ID` |
+| `PLAYMATE_MSG_ENCRYPTION_KEY` | AES-256 key | `PLAYMATE_MSG_ENCRYPTION_KEY` |
+| `ALLOWED_ORIGINS` | CORS origins | `ALLOWED_ORIGINS` |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | Firebase SA JSON | *(Render only)* |
 
 ### Frontend (Vercel)
 
-| Variable | Description | Example |
+| Variable | Description | Root `.env` name |
 | --- | --- | --- |
-| `VITE_API_BASE_URL` | Backend API URL | `https://playmate-backend.onrender.com/api` |
-| `VITE_WS_BASE_URL` | WebSocket URL | `https://playmate-backend.onrender.com/ws` |
-| `VITE_FIREBASE_API_KEY` | Firebase API key | `AIzaSy...` |
-| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase auth domain | `xxx.firebaseapp.com` |
-| `VITE_FIREBASE_PROJECT_ID` | Firebase project ID | `playmate-4b25d` |
-| `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage | `xxx.firebasestorage.app` |
-| `VITE_FIREBASE_MESSAGING_SENDER_ID` | FCM sender ID | `189801490683` |
-| `VITE_FIREBASE_APP_ID` | Firebase app ID | `1:189801490683:web:...` |
-| `VITE_FIREBASE_MEASUREMENT_ID` | Analytics ID | `G-S2DV3CL17V` |
-| `VITE_CLOUDINARY_CLOUD_NAME` | Cloudinary cloud | `playmate` |
-| `VITE_CLOUDINARY_UPLOAD_PRESET` | Upload preset | `playmate-upload` |
+| `VITE_API_BASE_URL` | Backend API URL | *(Render URL + `/api`)* |
+| `VITE_WS_BASE_URL` | WebSocket URL | *(Render URL + `/ws`)* |
+| `VITE_FIREBASE_API_KEY` | Firebase API key | `FIREBASE_API_KEY` |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase auth domain | `FIREBASE_AUTH_DOMAIN` |
+| `VITE_FIREBASE_PROJECT_ID` | Firebase project ID | `FIREBASE_PROJECT_ID` |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage | `FIREBASE_STORAGE_BUCKET` |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | FCM sender ID | `FIREBASE_MESSAGING_SENDER_ID` |
+| `VITE_FIREBASE_APP_ID` | Firebase app ID | `FIREBASE_APP_ID` |
+| `VITE_FIREBASE_MEASUREMENT_ID` | Analytics ID | `FIREBASE_MEASUREMENT_ID` |
+| `VITE_CLOUDINARY_CLOUD_NAME` | Cloudinary cloud | `CLOUDINARY_CLOUD_NAME` |
+| `VITE_CLOUDINARY_UPLOAD_PRESET` | Upload preset | *(set in Cloudinary dashboard)* |
 
 ---
 
