@@ -24,7 +24,7 @@ public class FirebaseConfig {
         }
 
         try {
-            // Priority 1: Environment variable (for Railway / cloud deployments)
+            // Priority 1: Environment variable (for Render / cloud deployments)
             String credentialsJson = System.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON");
             if (credentialsJson != null && !credentialsJson.isBlank()) {
                 InputStream stream = new ByteArrayInputStream(credentialsJson.getBytes(StandardCharsets.UTF_8));

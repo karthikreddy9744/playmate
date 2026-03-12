@@ -82,7 +82,7 @@ PlayMate enables users to **discover nearby games**, **post their own sessions**
 | Technology | Purpose |
 |---|---|
 | Spring Boot 3.5.11 | Application framework |
-| Java 25 | Language runtime |
+| Java 21 | Language runtime |
 | Maven 3.9 | Build & dependency management |
 | Spring Security 6 | Auth, CORS, role-based access |
 | JWT (jjwt 0.12) | Stateless token authentication (24h access, 7d refresh) |
@@ -117,7 +117,7 @@ PlayMate enables users to **discover nearby games**, **post their own sessions**
 | Service | For |
 |---|---|
 | Vercel | Frontend static site |
-| Railway.app | Backend Spring Boot jar |
+| Render | Backend Docker container |
 | Supabase | Managed PostgreSQL |
 
 ---
@@ -875,27 +875,30 @@ java -jar target/backend-0.0.1-SNAPSHOT.jar
 
 Set all env vars (DB, JWT secret, Firebase service account, Cloudinary, Brevo, encryption key) in the production environment.
 
-### 13.3 Docker (Basic)
+### 13.3 Docker
+
+The backend uses a multi-stage Dockerfile at `backend/Dockerfile`:
 
 ```dockerfile
-# Backend
-FROM eclipse-temurin:21-jre-alpine
-COPY target/backend-0.0.1-SNAPSHOT.jar /app/app.jar
-ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+# Stage 1 — Build
+FROM maven:3.9.11-eclipse-temurin-21 AS build
+WORKDIR /app
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+# Stage 2 — Runtime
+FROM eclipse-temurin:21-jre
+WORKDIR /app
+COPY --from=build /app/target/*.jar app.jar
+EXPOSE 8080
+ENTRYPOINT ["java", "-jar", "app.jar"]
 ```
 
-Frontend: build `dist/` then serve via an Nginx container.
+Frontend: build `dist/` then deploy to Vercel (zero config with `vercel.json` SPA rewrites).
 
-### 13.4 CI Secrets
-
-Required GitHub Actions secrets (see `.github/workflows/ci.yml`):
-
-- `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
-- `BREVO_API_KEY`
-- `FIREBASE_SERVICE_ACCOUNT_JSON` (Base64-encoded)
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (if running prod DB tests)
-- `APP_DEV_SEED_ENABLED=true` (ephemeral CI runs only)
-- `JWT_SECRET`, DB credentials
+> **Full step-by-step deployment instructions → see [DEPLOYMENT.md](DEPLOYMENT.md)**
 
 ---
 

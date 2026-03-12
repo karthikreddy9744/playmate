@@ -36,7 +36,7 @@
 Push your project to a **private** GitHub repository if you haven't already:
 
 ```bash
-cd /Users/thalakolakarthikreddy/playmate
+cd playmate
 
 # Initialize and push (skip if already done)
 git init
