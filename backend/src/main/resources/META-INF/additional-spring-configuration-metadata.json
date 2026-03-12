@@ -91,6 +91,11 @@
       "name": "playmate.msg.encryption-key",
       "type": "java.lang.String",
       "description": "Base64-encoded 256-bit AES key for message encryption at rest (AES-256-GCM)"
+    },
+    {
+      "name": "internal.cleanup.key",
+      "type": "java.lang.String",
+      "description": "Secret key for triggering internal cleanup via REST endpoint"
     }
   ]
 }

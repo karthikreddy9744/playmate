@@ -71,6 +71,8 @@ public class SecurityConfig {
                 .requestMatchers("/ws/**").permitAll()
                 // Allow dev-only seeder endpoints (controller itself checks the flag)
                 .requestMatchers("/internal/dev/**").permitAll()
+                // Allow internal cleanup triggered by external cron (controller checks secret key)
+                .requestMatchers("/internal/cleanup").permitAll()
                 // Admin-only endpoints
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 // All other requests must be authenticated
