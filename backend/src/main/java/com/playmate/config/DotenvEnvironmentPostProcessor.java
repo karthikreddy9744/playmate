@@ -1,5 +1,8 @@
 package com.playmate.config;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,24 +17,34 @@ public class DotenvEnvironmentPostProcessor implements EnvironmentPostProcessor 
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
+        // Look for .env in the working directory; skip entirely if the file is absent
+        // (on Render / cloud, env vars are provided by the platform, not a .env file)
+        Path envFile = Paths.get(System.getProperty("user.dir")).resolve(".env");
+        if (!Files.exists(envFile)) {
+            // Also check one level up (backend/ → project root)
+            envFile = Paths.get(System.getProperty("user.dir")).resolve("../.env").normalize();
+        }
+        if (!Files.exists(envFile)) {
+            System.out.println("[DotenvPostProcessor] No .env file found — using platform environment variables.");
+            return;
+        }
+
         Dotenv dotenv = Dotenv.configure()
-                .directory("/Users/thalakolakarthikreddy/playmate/") // Specify the directory where .env is located
+                .directory(envFile.getParent().toString())
                 .load();
 
         Map<String, Object> dotenvMap = new HashMap<>();
         dotenv.entries().forEach(entry -> {
-                    String key = entry.getKey();
-                    String value = entry.getValue();
-                    dotenvMap.put(key, value); // Keep original for direct access if needed
+            String key = entry.getKey();
+            String value = entry.getValue();
+            dotenvMap.put(key, value);
 
-                    // Convert to Spring-friendly dot.case
-                    String springKey = key.toLowerCase().replace("_", ".");
-                    dotenvMap.put(springKey, value);
-                });
+            // Convert to Spring-friendly dot.case
+            String springKey = key.toLowerCase().replace("_", ".");
+            dotenvMap.put(springKey, value);
+        });
 
-        System.out.println("Loaded .env variables via EnvironmentPostProcessor: " + dotenvMap);
-        System.out.println("Cloudinary Cloud Name in dotenvMap: " + dotenvMap.get("cloudinary.cloud.name"));
-
+        System.out.println("[DotenvPostProcessor] Loaded " + dotenvMap.size() + " properties from .env");
         environment.getPropertySources().addFirst(new MapPropertySource("dotenvProperties", dotenvMap));
     }
 }
