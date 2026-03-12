@@ -509,19 +509,31 @@ Spring property: `playmate.msg.encryption-key=${PLAYMATE_MSG_ENCRYPTION_KEY}`
 
 **Important:** This is server-side encryption at rest. The server holds the key and can read messages in memory during request processing. API transport is protected by HTTPS/WSS (TLS). FCM push notifications and WebSocket broadcasts use plaintext (not the encrypted DB value).
 
-### 8.2 Automatic Message Deletion
+### 8.2 Automatic Message Cleanup
+
+**Messages** are purged after a game ends — the **game entity stays in the DB** for admin analytics.
 
 When a game **ends** (now > start + duration + 30 min grace) or is **cancelled/deleted**:
 
-| Message Type | Purge Rule |
+| Resource | Purge Rule |
 |---|---|
-| Group chat | All messages with the game's `gameId` deleted immediately |
+| Group chat | All messages with the game's `gameId` deleted |
 | Direct messages | DMs between each pair of participants deleted **only if** that pair shares no other active game |
+| Game entity | **Kept in DB** — status computed as COMPLETED; visible to admin for analytics |
 
 **Purge triggers:**
-- `GameService.cancelGame()` — host cancels
-- `GameService.deleteGame()` — host deletes
-- `CleanupScheduler` — runs every 15 minutes; finds games from last 7 days past end+30min
+- `GameService.cancelGame()` — host cancels (messages purged immediately)
+- `GameService.deleteGame()` — host deletes (game + messages removed)
+- `CleanupScheduler` — runs every 15 minutes; purges messages for games that ended 30+ min ago
+
+### 8.2.1 Game Visibility & Request Deadline
+
+| Timeline | Behaviour |
+|---|---|
+| Until 10 min before start | Game visible in discovery, join requests accepted |
+| 10 min before start → game end | Game **hidden** from discovery; new requests and accepting requests **blocked** |
+| Game end + 30 min | Messages purged from DB by `CleanupScheduler` |
+| After game ends | Game stays in DB with computed status `COMPLETED` for admin reporting |
 
 ### 8.3 Active-Game-Only Messaging
 
@@ -940,7 +952,7 @@ Frontend: build `dist/` then deploy to Vercel (zero config with `vercel.json` SP
 | `MessageService.java` | Message CRUD, encryption wiring, lifecycle purge |
 | `GameService.java` | Game CRUD, cancel/delete → purge messages |
 | `GameRequestService.java` | Join request flow (create, accept, reject) |
-| `CleanupScheduler.java` | Periodic purge of ended-game messages (every 15 min) |
+| `CleanupScheduler.java` | Periodic purge of messages for ended games (every 15 min) |
 | `AdminController.java` | All `/api/admin/**` REST endpoints |
 | `AdminService.java` | Analytics logic (20+ methods) |
 | `AdminDashboard.tsx` | Frontend admin dashboard (20 parallel API fetches) |

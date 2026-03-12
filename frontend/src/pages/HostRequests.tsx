@@ -194,12 +194,18 @@ export default function HostRequests() {
                     </p>
                   )}
                 </div>
-                {tab === 'incoming' && r.status === 'PENDING' && (
-                  <div className="flex flex-col gap-2 ml-4">
-                    <button onClick={() => accept(r)} className="btn-primary text-sm">Accept</button>
-                    <button onClick={() => reject(r)} className="btn-secondary text-sm">Reject</button>
-                  </div>
-                )}
+                {tab === 'incoming' && r.status === 'PENDING' && (() => {
+                  const start = r.game?.gameDateTime ? new Date(r.game.gameDateTime).getTime() : null
+                  const deadlinePassed = start ? Date.now() > start - 10 * 60_000 : false
+                  return deadlinePassed ? (
+                    <span className="ml-4 text-xs text-gray-400 italic">Game started</span>
+                  ) : (
+                    <div className="flex flex-col gap-2 ml-4">
+                      <button onClick={() => accept(r)} className="btn-primary text-sm">Accept</button>
+                      <button onClick={() => reject(r)} className="btn-secondary text-sm">Reject</button>
+                    </div>
+                  )
+                })()}
                 {tab === 'outgoing' && r.status !== 'PENDING' && (
                   <div className="ml-4">{statusBadge(r.status)}</div>
                 )}

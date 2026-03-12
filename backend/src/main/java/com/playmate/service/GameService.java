@@ -282,8 +282,15 @@ public class GameService {
 
     public List<GameResponse> getGamesBySport(String sport) {
         try {
+            LocalDateTime now = LocalDateTime.now();
             SportType sportType = SportType.valueOf(sport.toUpperCase().replace(" ", "_"));
             return gameRepository.findBySportType(sportType).stream()
+                    .filter(g -> !Boolean.TRUE.equals(g.getIsCancelled()))
+                    .filter(g -> {
+                        if (g.getGameDateTime() == null) return true;
+                        LocalDateTime deadline = g.getGameDateTime().minusMinutes(10);
+                        return now.isBefore(deadline);
+                    })
                     .map(this::toGameResponse)
                     .collect(Collectors.toList());
         } catch (IllegalArgumentException e) {
@@ -293,6 +300,7 @@ public class GameService {
 
     public List<GameResponse> getUpcomingGames(LocalDateTime from, LocalDateTime to) {
         return gameRepository.findUpcomingBetween(from, to).stream()
+                .filter(g -> !Boolean.TRUE.equals(g.getIsCancelled()))
                 .map(this::toGameResponse)
                 .collect(Collectors.toList());
     }

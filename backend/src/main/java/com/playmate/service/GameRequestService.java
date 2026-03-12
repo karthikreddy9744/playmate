@@ -115,6 +115,14 @@ public class GameRequestService {
             throw new RuntimeException("Only host can accept requests");
         }
 
+        // Block accepting requests within 10 min of game start
+        if (game.getGameDateTime() != null) {
+            LocalDateTime deadline = game.getGameDateTime().minusMinutes(10);
+            if (LocalDateTime.now().isAfter(deadline)) {
+                throw new RuntimeException("Cannot accept requests — game starts in less than 10 minutes");
+            }
+        }
+
         GameRequest req = gameRequestRepository.findById(requestId).orElseThrow(() -> new RuntimeException("Request not found"));
         if (!req.getGame().getId().equals(gameId)) throw new RuntimeException("Request does not belong to this game");
         if (req.getStatus() != GameRequest.RequestStatus.PENDING) throw new RuntimeException("Request is not pending");
