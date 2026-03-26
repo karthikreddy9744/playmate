@@ -23,6 +23,9 @@ public interface GameRepository extends JpaRepository<Game, Long> {
   /** Non-cancelled games that haven't ended yet (max duration 4h window from service start) */
   List<Game> findByIsCancelledFalseAndGameDateTimeAfterOrderByGameDateTimeAsc(LocalDateTime windowStart);
 
+  /** Cancelled games that were scheduled recently */
+  List<Game> findByIsCancelledTrueAndGameDateTimeAfterOrderByGameDateTimeAsc(LocalDateTime windowStart);
+
   /** All non-cancelled games (used for lifecycle computation) */
   List<Game> findByIsCancelledFalse();
 

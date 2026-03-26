@@ -64,18 +64,37 @@ const ProfileLocationPicker: React.FC<ProfileLocationPickerProps> = ({ value, on
     useEffect(() => {
       const searchControl = new (GeoSearchControl as any)({
         provider: provider,
-        showMarker: true,
+        showMarker: false, // Don't use search provider's marker
         showPopup: false,
         autoClose: true,
-        retainZoom: false,
-        animateZoom: true,
+        retainZoom: true,   // Keep zoom level to avoid animations
+        animateZoom: false, // Disable zoom animations to prevent TypeError
         keepResult: true,
         searchLabel: 'Enter address or location',
       });
 
       map.addControl(searchControl);
+
+      // Listen for search result and update marker position
+      map.on('geosearch/showlocation', (result: any) => {
+        if (result && result.location) {
+          const { x, y, label } = result.location;
+          const newPos = { lat: y, lng: x };
+          setPosition(newPos);
+          setAddress(label);
+          onChange(newPos, label);
+        }
+      });
+
       return () => {
-        void map.removeControl(searchControl);
+        map.off('geosearch/showlocation');
+        try {
+          if (map && (map as any)._container) {
+            map.removeControl(searchControl);
+          }
+        } catch (e) {
+          console.warn('Failed to remove search control safely:', e);
+        }
       };
     }, [map]);
 

@@ -335,6 +335,11 @@ public UserResponse createUser(RegisterRequest request) {
         response.setTotalGamesPlayed(user.getTotalGamesPlayed());
         response.setAverageRating(user.getAverageRating());
         response.setNoShowCount(user.getNoShowCount());
+        response.setGamesCreated(user.getGamesCreated());
+        response.setGamesCancelled(user.getGamesCancelled());
+        response.setLastMinuteCancellations(user.getLastMinuteCancellations());
+        response.setHostReliabilityScore(user.getHostReliabilityScore());
+        response.setPlayAgainPercentage(user.getPlayAgainPercentage());
         response.setRole(user.getRole());
         response.setIsActive(user.getIsActive());
         response.setCreatedAt(user.getCreatedAt() != null ? user.getCreatedAt().toString() : null);

@@ -7,7 +7,6 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -24,7 +23,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.filter.CorsFilter;
 
 import com.playmate.service.JwtService;
 
@@ -60,6 +58,7 @@ public class SecurityConfig {
                 // Public endpoints
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/games/requests/**").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/games/**").permitAll()
                 // Debug endpoints (development only)
                 .requestMatchers("/api/debug/**").permitAll()
@@ -78,7 +77,7 @@ public class SecurityConfig {
                 // All other requests must be authenticated
                 .anyRequest().authenticated()
             )
-            .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -87,18 +86,22 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         log.info("Configured raw allowed-origins property: {}", allowedOrigins);
+        
+        // Split and trim origins, filtering out unresolved placeholders
         List<String> origins = Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim)
-            .filter(s -> !s.isEmpty())
-            .filter(s -> !s.contains("${"))
+                .filter(s -> !s.isEmpty())
+                .filter(s -> !s.contains("${"))
                 .collect(Collectors.toList());
+        
         log.info("Parsed allowed origins: {}", origins);
         if (origins.isEmpty()) {
             origins = Arrays.asList("http://localhost:3000", "http://localhost:3001", "http://localhost:5173");
         }
+        
         configuration.setAllowedOrigins(origins);
-        // Also permit origin patterns to allow wildcards when necessary
-        configuration.setAllowedOriginPatterns(Arrays.asList("*"));
+        // Do NOT use "*" with allowCredentials(true). Use setAllowedOriginPatterns if needed.
+        // But since we have origins list, we can just use that.
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList(
             "Authorization", 
@@ -114,21 +117,11 @@ public class SecurityConfig {
             "Access-Control-Allow-Credentials"
         ));
         configuration.setAllowCredentials(true);
-        // Important: Allow preflight requests
         configuration.setMaxAge(3600L);
         
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
-    }
-
-    @Bean
-    public FilterRegistrationBean<CorsFilter> corsFilterRegistration() {
-        UrlBasedCorsConfigurationSource source = (UrlBasedCorsConfigurationSource) corsConfigurationSource();
-        CorsFilter corsFilter = new CorsFilter(source);
-        FilterRegistrationBean<CorsFilter> bean = new FilterRegistrationBean<>(corsFilter);
-        bean.setOrder(0);
-        return bean;
     }
 
     @Bean
@@ -139,10 +132,5 @@ public class SecurityConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtService, userDetailsService);
     }
 }

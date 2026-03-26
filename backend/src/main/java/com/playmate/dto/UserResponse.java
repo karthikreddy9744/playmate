@@ -3,10 +3,12 @@ package com.playmate.dto;
 import java.math.BigDecimal;
 
 import lombok.AllArgsConstructor;
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-@Data
+@Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 public class UserResponse {
@@ -28,6 +30,11 @@ public class UserResponse {
     private Integer totalGamesPlayed;
     private BigDecimal averageRating;
     private Integer noShowCount;
+    private Integer gamesCreated;
+    private Integer gamesCancelled;
+    private Integer lastMinuteCancellations;
+    private BigDecimal hostReliabilityScore;
+    private BigDecimal playAgainPercentage;
     private String role;
     private Boolean isActive;
     private String createdAt;

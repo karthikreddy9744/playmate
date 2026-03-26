@@ -72,11 +72,23 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Message> findByGameIdOrderByCreatedAtAsc(Long gameId);
 
     /** Delete all messages for a specific game (used by cleanup job) */
-    void deleteByGameId(Long gameId);
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query("DELETE FROM Message m WHERE m.gameId = :gameId")
+    void deleteByGameId(@Param("gameId") Long gameId);
 
     /** Delete DMs (gameId IS NULL) between any pair of users in the given set */
     @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
     @Query("DELETE FROM Message m WHERE m.gameId IS NULL " +
            "AND m.sender.id IN :userIds AND m.receiver.id IN :userIds")
     void deleteDmsBetweenUsers(@Param("userIds") java.util.Collection<Long> userIds);
+
+    /** Delete DMs (gameId IS NULL) between two specific users */
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.transaction.annotation.Transactional
+    @Query("DELETE FROM Message m WHERE m.gameId IS NULL AND (" +
+           "(m.sender.id = :u1 AND m.receiver.id = :u2) OR " +
+           "(m.sender.id = :u2 AND m.receiver.id = :u1))")
+    void deleteDmsBetweenTwoUsers(@Param("u1") Long u1, @Param("u2") Long u2);
 }

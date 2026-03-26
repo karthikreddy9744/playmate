@@ -107,9 +107,19 @@ public class AdminController {
         return ResponseEntity.ok(adminService.getNoShowTracking());
     }
 
+    @GetMapping("/stats/cancellations")
+    public ResponseEntity<List<Map<String, Object>>> getCancellations() {
+        return ResponseEntity.ok(adminService.getCancellations());
+    }
+
     @GetMapping("/stats/verification")
     public ResponseEntity<Map<String, Object>> getVerificationStats() {
         return ResponseEntity.ok(adminService.getVerificationStats());
+    }
+
+    @GetMapping("/stats/ghosting")
+    public ResponseEntity<Map<String, Object>> getGhostingStats() {
+        return ResponseEntity.ok(adminService.getGhostingStats());
     }
 
     @GetMapping("/stats/peak-hours")

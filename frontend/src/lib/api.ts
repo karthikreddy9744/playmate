@@ -14,7 +14,9 @@ type RequestConfigWithAuthControl = InternalAxiosRequestConfig & {
 // Attach backend JWT to every request if available
 api.interceptors.request.use((config: RequestConfigWithAuthControl) => {
   const token = localStorage.getItem(TOKEN_KEY)
-  if (token && !config.skipAuth) config.headers.Authorization = `Bearer ${token}`
+  if (token && token !== 'null' && token !== 'undefined' && !config.skipAuth) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
   return config
 })
 

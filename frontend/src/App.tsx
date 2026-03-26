@@ -361,7 +361,7 @@ export default function App() {
           </div>
           <div>
             <h4 className="font-semibold text-textPrimary mb-3 text-sm uppercase tracking-wider">Contact</h4>
-            <p className="text-sm text-textSecondary">playmate2official@gmail.com</p>
+            <p className="text-sm text-textSecondary">support@playmateofficial.me</p>
             <p className="text-sm text-textSecondary mt-1">Built with passion for sports.</p>
           </div>
         </div>

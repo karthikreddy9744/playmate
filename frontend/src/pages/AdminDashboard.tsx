@@ -130,9 +130,11 @@ interface ActivityItem { id: number; user: string; action: string; sport: string
 // New types for extra features
 interface RequestStats { totalRequests: number; accepted: number; rejected: number; pending: number; acceptanceRate: number; rejectionRate: number; avgResponseMinutes: number }
 interface MessagingStats { totalMessages: number; dmConversations: number; groupChats: number; unreadMessages: number }
-interface LeaderboardEntry { userId: number; name: string; gamesHosted?: number; gamesPlayed?: number; avgRating: number; city?: string }
+interface LeaderboardEntry { userId: number; name: string; gamesHosted?: number; gamesPlayed?: number; avgRating: number; city?: string; hostReliability?: number; playAgainPercentage?: number }
 interface NoShowEntry { userId: number; name: string; noShows: number; gamesPlayed: number; noShowRate: number }
 interface VerificationStats { totalUsers: number; emailVerified: number; emailUnverified: number; idVerified: number; idUnverified: number; fullyVerified: number; emailVerifiedRate: number; idVerifiedRate: number }
+interface CancellationEntry { userId: number; name: string; cancelled: number; lastMinute: number; reliability: number }
+interface GhostingStats { totalReports: number; conductedCount: number; ghostedCount: number; trustRate: number }
 interface PeakHourCell { day: string; hour: number; count: number }
 interface FillRateStats { avgFillRate: number; totalGames: number; fullyFilled: number; halfFilled: number; lowFill: number }
 interface SystemHealth { dbStatus: string; redisStatus: string; jvmTotalMemoryMB: number; jvmFreeMemoryMB: number; jvmUsedMemoryMB: number; jvmMaxMemoryMB: number; availableProcessors: number; totalUsers: number; totalGames: number; totalMessages: number; totalRatings: number; totalRequests: number }
@@ -191,6 +193,8 @@ export default function AdminDashboard() {
   const [hostBoard,     setHostBoard]    = useState<LeaderboardEntry[]>([])
   const [playerBoard,   setPlayerBoard]  = useState<LeaderboardEntry[]>([])
   const [noShows,       setNoShows]      = useState<NoShowEntry[]>([])
+  const [cancellations, setCancellations] = useState<CancellationEntry[]>([])
+  const [ghosting,      setGhosting]     = useState<GhostingStats | null>(null)
   const [verification,  setVerification] = useState<VerificationStats | null>(null)
   const [peakHours,     setPeakHours]    = useState<PeakHourCell[]>([])
   const [fillRate,      setFillRate]     = useState<FillRateStats | null>(null)
@@ -216,7 +220,7 @@ export default function AdminDashboard() {
     setError(null)
     try {
       const [uStats, gStats, lc, area, sent, ret, tr, sLife, act, sDist, rev,
-             reqStats, mStats, hBoard, pBoard, noShow, verif, peak, fill, health] = await Promise.all([
+             reqStats, mStats, hBoard, pBoard, noShow, cancl, ghost, verif, peak, fill, health] = await Promise.all([
         api.get('/admin/stats/users'),
         api.get('/admin/stats/games'),
         api.get('/admin/stats/lifecycle'),
@@ -233,6 +237,8 @@ export default function AdminDashboard() {
         api.get('/admin/stats/host-leaderboard'),
         api.get('/admin/stats/player-leaderboard'),
         api.get('/admin/stats/no-shows'),
+        api.get('/admin/stats/cancellations'),
+        api.get('/admin/stats/ghosting'),
         api.get('/admin/stats/verification'),
         api.get('/admin/stats/peak-hours'),
         api.get('/admin/stats/fill-rate'),
@@ -254,6 +260,8 @@ export default function AdminDashboard() {
       setHostBoard(hBoard.data)
       setPlayerBoard(pBoard.data)
       setNoShows(noShow.data)
+      setCancellations(cancl.data)
+      setGhosting(ghost.data)
       setVerification(verif.data)
       setPeakHours(peak.data)
       setFillRate(fill.data)
@@ -545,6 +553,94 @@ export default function AdminDashboard() {
                 ))}
               </div>
             </div>
+
+            {/* Cancellations */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <SectionHeading>Top Cancellers (Hosts)</SectionHeading>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="border-b border-gray-100">
+                    <th className="text-left py-2 text-gray-500 font-medium">Host</th>
+                    <th className="text-right py-2 text-gray-500 font-medium">Total</th>
+                    <th className="text-right py-2 text-gray-500 font-medium">LastMin</th>
+                    <th className="text-right py-2 text-gray-500 font-medium">Score</th>
+                  </tr></thead>
+                  <tbody>
+                    {cancellations.map(c => (
+                      <tr key={c.userId} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                        <td className="py-2 font-medium text-gray-700">{c.name}</td>
+                        <td className="py-2 text-right text-red-600 font-semibold">{c.cancelled}</td>
+                        <td className="py-2 text-right text-amber-600">{c.lastMinute}</td>
+                        <td className="py-2 text-right">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            c.reliability >= 90 ? 'bg-green-100 text-green-700' : 
+                            c.reliability >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {c.reliability}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {cancellations.length === 0 && (
+                      <tr><td colSpan={4} className="text-center py-4 text-gray-400 italic">No cancellations recorded</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Ghosting & Verification Stats */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <div className="flex items-center justify-between mb-4">
+                <SectionHeading>Trust & Verification (Ghosting)</SectionHeading>
+                {ghosting && (
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    ghosting.trustRate >= 90 ? 'bg-emerald-100 text-emerald-700' :
+                    ghosting.trustRate >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
+                  }`}>
+                    {ghosting.trustRate}% Trust Rate
+                  </span>
+                )}
+              </div>
+              
+              {!ghosting || ghosting.totalReports === 0 ? (
+                <p className="text-gray-400 text-sm text-center py-8 italic">No verification reports yet</p>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                      <p className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">Conducted</p>
+                      <p className="text-xl font-black text-emerald-900">{ghosting.conductedCount}</p>
+                      <p className="text-[10px] text-emerald-600 mt-0.5">Games verified played</p>
+                    </div>
+                    <div className="bg-rose-50 rounded-xl p-3 border border-rose-100">
+                      <p className="text-[10px] text-rose-700 font-bold uppercase tracking-wider">Ghosted</p>
+                      <p className="text-xl font-black text-rose-900">{ghosting.ghostedCount}</p>
+                      <p className="text-[10px] text-rose-600 mt-0.5">Reported not played</p>
+                    </div>
+                  </div>
+                  
+                  <div className="pt-2 border-t border-gray-50">
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <span className="text-gray-500 font-medium">Platform Trust Index</span>
+                      <span className="text-gray-900 font-bold">{ghosting.trustRate}%</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full transition-all duration-1000 ${
+                          ghosting.trustRate >= 90 ? 'bg-emerald-500' :
+                          ghosting.trustRate >= 75 ? 'bg-amber-500' : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${ghosting.trustRate}%` }}
+                      />
+                    </div>
+                    <p className="text-[9px] text-gray-400 mt-2 leading-tight">
+                      * Trust rate is calculated based on participant reports of whether games were actually conducted by the host.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -742,7 +838,8 @@ export default function AdminDashboard() {
                     <th className="text-left py-2 text-gray-500 font-medium">#</th>
                     <th className="text-left py-2 text-gray-500 font-medium">Name</th>
                     <th className="text-right py-2 text-gray-500 font-medium">Hosted</th>
-                    <th className="text-right py-2 text-gray-500 font-medium">Avg Rating</th>
+                    <th className="text-right py-2 text-gray-500 font-medium">Reliability</th>
+                    <th className="text-right py-2 text-gray-500 font-medium">Rating</th>
                   </tr></thead>
                   <tbody>
                     {hostBoard.map((h, i) => (
@@ -750,6 +847,14 @@ export default function AdminDashboard() {
                         <td className="py-2 font-bold text-gray-400">{i + 1}</td>
                         <td className="py-2 font-medium text-gray-700">{h.name}</td>
                         <td className="py-2 text-right text-emerald-600 font-semibold">{h.gamesHosted}</td>
+                        <td className="py-2 text-right">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            (h.hostReliability || 0) >= 90 ? 'bg-green-100 text-green-700' : 
+                            (h.hostReliability || 0) >= 75 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {h.hostReliability ?? 100}%
+                          </span>
+                        </td>
                         <td className="py-2 text-right text-amber-600">{h.avgRating > 0 ? `${h.avgRating} ⭐` : '—'}</td>
                       </tr>
                     ))}
@@ -774,8 +879,8 @@ export default function AdminDashboard() {
                     <th className="text-left py-2 text-gray-500 font-medium">#</th>
                     <th className="text-left py-2 text-gray-500 font-medium">Name</th>
                     <th className="text-right py-2 text-gray-500 font-medium">Played</th>
+                    <th className="text-right py-2 text-gray-500 font-medium">Play Again</th>
                     <th className="text-right py-2 text-gray-500 font-medium">Rating</th>
-                    <th className="text-right py-2 text-gray-500 font-medium">City</th>
                   </tr></thead>
                   <tbody>
                     {playerBoard.map((p, i) => (
@@ -783,8 +888,15 @@ export default function AdminDashboard() {
                         <td className="py-2 font-bold text-gray-400">{i + 1}</td>
                         <td className="py-2 font-medium text-gray-700">{p.name}</td>
                         <td className="py-2 text-right text-blue-600 font-semibold">{p.gamesPlayed}</td>
+                        <td className="py-2 text-right">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            (p.playAgainPercentage || 0) >= 80 ? 'bg-emerald-100 text-emerald-700' : 
+                            (p.playAgainPercentage || 0) >= 50 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {p.playAgainPercentage ?? 0}%
+                          </span>
+                        </td>
                         <td className="py-2 text-right text-amber-600">{p.avgRating > 0 ? `${p.avgRating} ⭐` : '—'}</td>
-                        <td className="py-2 text-right text-gray-500">{p.city}</td>
                       </tr>
                     ))}
                   </tbody>

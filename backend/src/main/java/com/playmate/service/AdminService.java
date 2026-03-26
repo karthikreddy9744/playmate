@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -435,12 +436,14 @@ public class AdminService {
             Optional<User> userOpt = userRepository.findById(hostId);
             String name = userOpt.map(User::getName).orElse("User #" + hostId);
             double avgRating = userOpt.map(u -> u.getAverageRating() != null ? u.getAverageRating().doubleValue() : 0.0).orElse(0.0);
+            double reliability = userOpt.map(u -> u.getHostReliabilityScore() != null ? u.getHostReliabilityScore().doubleValue() : 100.0).orElse(100.0);
 
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("userId",      hostId);
-            row.put("name",        name);
-            row.put("gamesHosted", games.size());
-            row.put("avgRating",   Math.round(avgRating * 100.0) / 100.0);
+            row.put("userId",          hostId);
+            row.put("name",            name);
+            row.put("gamesHosted",     games.size());
+            row.put("hostReliability", Math.round(reliability));
+            row.put("avgRating",       Math.round(avgRating * 100.0) / 100.0);
             leaderboard.add(row);
         }
         leaderboard.sort(Comparator.comparingInt((Map<String, Object> m) -> ((Number) m.get("gamesHosted")).intValue()).reversed());
@@ -457,14 +460,34 @@ public class AdminService {
             .limit(10)
             .map(u -> {
                 Map<String, Object> row = new LinkedHashMap<>();
-                row.put("userId",      u.getId());
-                row.put("name",        u.getName());
-                row.put("gamesPlayed", u.getTotalGamesPlayed());
-                row.put("avgRating",   u.getAverageRating() != null ? u.getAverageRating().doubleValue() : 0.0);
-                row.put("city",        u.getLocationCity() != null ? u.getLocationCity() : "Unknown");
+                row.put("userId",               u.getId());
+                row.put("name",                 u.getName());
+                row.put("gamesPlayed",          u.getTotalGamesPlayed());
+                row.put("playAgainPercentage",  u.getPlayAgainPercentage() != null ? u.getPlayAgainPercentage().doubleValue() : 0.0);
+                row.put("avgRating",            u.getAverageRating() != null ? u.getAverageRating().doubleValue() : 0.0);
+                row.put("city",                 u.getLocationCity() != null ? u.getLocationCity() : "Unknown");
                 return row;
             })
             .collect(Collectors.toList());
+    }
+
+    // ── Cancellations ──────────────────────────────────────────────
+
+    public List<Map<String, Object>> getCancellations() {
+        return userRepository.findAll().stream()
+                .filter(u -> u.getGamesCancelled() != null && u.getGamesCancelled() > 0)
+                .sorted((u1, u2) -> u2.getGamesCancelled().compareTo(u1.getGamesCancelled()))
+                .limit(10)
+                .map(u -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("userId",      u.getId());
+                    row.put("name",        u.getName());
+                    row.put("cancelled",   u.getGamesCancelled());
+                    row.put("lastMinute",  Objects.requireNonNullElse(u.getLastMinuteCancellations(), 0));
+                    row.put("reliability", u.getHostReliabilityScore() != null ? u.getHostReliabilityScore().intValue() : 100);
+                    return row;
+                })
+                .collect(Collectors.toList());
     }
 
     // ── No-Show Tracking ───────────────────────────────────────────
@@ -523,10 +546,13 @@ public class AdminService {
         // Build 7 x 24 grid: dayOfWeek x hour
         int[][] grid = new int[7][24];
         for (Game g : allGames) {
-            if (g.getGameDateTime() != null) {
-                int dow  = g.getGameDateTime().getDayOfWeek().getValue() - 1; // 0=Mon
-                int hour = g.getGameDateTime().getHour();
-                grid[dow][hour]++;
+            LocalDateTime dt = g.getGameDateTime();
+            if (dt != null) {
+                int dow  = dt.getDayOfWeek().getValue() - 1; // 0=Mon
+                int hour = dt.getHour();
+                if (dow >= 0 && dow < 7 && hour >= 0 && hour < 24) {
+                    grid[dow][hour]++;
+                }
             }
         }
         String[] dayNames = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
@@ -571,6 +597,27 @@ public class AdminService {
         result.put("fullyFilled",    fullyFilled);
         result.put("halfFilled",     halfFilled);
         result.put("lowFill",        lowFill);
+        return result;
+    }
+
+    // ── Ghosting & Conducted Stats ─────────────────────────────────
+
+    public Map<String, Object> getGhostingStats() {
+        List<Rating> hostRatings = ratingRepository.findAll().stream()
+                .filter(r -> r.getRatingType() == Rating.RatingType.FOR_HOST && r.getWasGameConducted() != null)
+                .collect(Collectors.toList());
+
+        long totalReports = hostRatings.size();
+        long conductedCount = hostRatings.stream().filter(r -> Boolean.TRUE.equals(r.getWasGameConducted())).count();
+        long ghostedCount = hostRatings.stream().filter(r -> Boolean.FALSE.equals(r.getWasGameConducted())).count();
+
+        double trustRate = totalReports > 0 ? (double) conductedCount / totalReports * 100 : 100.0;
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("totalReports",   totalReports);
+        result.put("conductedCount", conductedCount);
+        result.put("ghostedCount",   ghostedCount);
+        result.put("trustRate",      Math.round(trustRate * 10.0) / 10.0);
         return result;
     }
 

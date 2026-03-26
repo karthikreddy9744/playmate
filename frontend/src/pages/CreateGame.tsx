@@ -25,21 +25,35 @@ const schema = yup.object({
   skillLevel: yup.string().required('Skill level is required'),
   startTime: yup.string().required('Start time is required')
     .test('future', 'Start time must be in the future', (v) => !v || new Date(v) > new Date()),
-  durationMinutes: yup.number().min(30, 'Min 30 minutes').required(),
-  totalSlots: yup.number().min(2, 'At least 2 players').max(50, 'Max 50 players').required(),
-  alreadyConfirmed: yup.number().min(1, 'At least 1 (you)').max(49, 'Must be less than max players').default(1),
-  availableSlots: yup.number().min(0),
-  costPerPerson: yup.number().min(0),
-  locationAddress: yup.string(),
+  durationMinutes: yup.number()
+    .transform((value) => (isNaN(value) ? undefined : value))
+    .min(20, 'Minimum 20 minutes')
+    .max(360, 'Maximum 6 hours')
+    .required('Duration is required'),
+  totalSlots: yup.number()
+    .transform((value) => (isNaN(value) ? undefined : value))
+    .min(2, 'Total slots must be at least 2')
+    .required('Total slots is required'),
+  alreadyConfirmed: yup.number()
+    .transform((value) => (isNaN(value) ? undefined : value))
+    .min(1, 'At least 1 (you)')
+    .required('Confirmed players is required')
+    .test('lessThanTotal', 'Confirmed players must be less than total slots', function(value) {
+      const total = this.parent.totalSlots;
+      return !total || !value || value < total;
+    }),
+  availableSlots: yup.number().nullable().transform((v) => (isNaN(v) ? null : v)),
+  costPerPerson: yup.number().nullable().transform((v) => (isNaN(v) ? null : v)),
+  locationAddress: yup.string().nullable(),
   locationCity: yup.string().required('City is required'),
-  locationLat: yup.number(),
-  locationLng: yup.number(),
-  notes: yup.string(),
-  equipmentProvided: yup.boolean(),
-  equipmentDetails: yup.string(),
-  isPublic: yup.boolean(),
-  ratingRequired: yup.boolean(),
-  minRating: yup.number().min(0).max(5),
+  locationLat: yup.number().nullable().transform((v) => (isNaN(v) ? null : v)),
+  locationLng: yup.number().nullable().transform((v) => (isNaN(v) ? null : v)),
+  notes: yup.string().nullable(),
+  equipmentProvided: yup.boolean().default(false),
+  equipmentDetails: yup.string().nullable(),
+  isPublic: yup.boolean().default(true),
+  ratingRequired: yup.boolean().default(false),
+  minRating: yup.number().nullable().transform((v) => (isNaN(v) ? null : v)).min(0).max(5),
 })
 
 type FormData = yup.InferType<typeof schema>
@@ -71,14 +85,22 @@ export default function CreateGame() {
     }
   }
 
-  // When user picks location on map
+  // When user picks location on map (updates internal state, not form yet)
   const handleMapSelect = (latlng: { lat: number; lng: number }, addr: string) => {
     setCoords(latlng)
     setAddress(addr)
-    setValue('locationLat', latlng.lat)
-    setValue('locationLng', latlng.lng)
-    setValue('locationAddress', addr)
-    setShowMap(false)
+  }
+
+  // Final confirmation to set form values and close modal
+  const confirmLocation = () => {
+    if (coords) {
+      setValue('locationLat', coords.lat)
+      setValue('locationLng', coords.lng)
+      setValue('locationAddress', address)
+      setShowMap(false)
+    } else {
+      toast.info('Please select a location on the map first')
+    }
   }
 
   // Inline LocationPicker logic
@@ -86,23 +108,51 @@ export default function CreateGame() {
     const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value || null)
     const provider = new OpenStreetMapProvider()
 
+    const RecenterOnPosition: React.FC<{ pos: { lat: number; lng: number } | null }> = ({ pos }) => {
+      const map = useMap();
+      React.useEffect(() => {
+        if (pos) map.setView(pos, map.getZoom());
+      }, [map, pos]);
+      return null;
+    };
+
     const SearchControlComp = () => {
       const map = useMap()
       React.useEffect(() => {
-        // @ts-ignore
         const searchControl = new (GeoSearchControl as any)({
           provider,
           style: 'bar',
-          showMarker: true,
+          showMarker: false,
           showPopup: false,
           autoClose: true,
-          retainZoomLevel: false,
-          animateZoom: true,
+          retainZoomLevel: true, // Keep zoom level to avoid animations
+          animateZoom: false,    // Disable zoom animations to prevent TypeError
           keepResult: true,
           searchLabel: 'Enter address',
         })
+        
         map.addControl(searchControl)
-        return () => { void map.removeControl(searchControl) }
+
+        map.on('geosearch/showlocation', (result: any) => {
+          if (result && result.location) {
+            const { x, y, label } = result.location;
+            const newPos = { lat: y, lng: x };
+            setPosition(newPos);
+            onChange(newPos, label);
+          }
+        });
+
+        return () => { 
+          map.off('geosearch/showlocation');
+          // Safer removal: only remove if map instance is still valid and has the control
+          try {
+            if (map && (map as any)._container) {
+              map.removeControl(searchControl);
+            }
+          } catch (e) {
+            console.warn('Failed to remove search control safely:', e);
+          }
+        }
       }, [map])
       return null
     }
@@ -160,6 +210,7 @@ export default function CreateGame() {
           attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <RecenterOnPosition pos={position} />
         <SearchControlComp />
         <LocationMarker />
       </MapContainer>
@@ -176,7 +227,11 @@ export default function CreateGame() {
       await api.post('/games', data)
       toast.success('Game created successfully!')
       navigate('/games')
-    } catch { toast.error('Failed to create game') }
+    } catch (err: any) { 
+      const msg = err.response?.data?.message || err.response?.data?.error || 'Failed to create game';
+      toast.error(msg);
+      console.error('Create game error:', err.response?.data);
+    }
   }
 
   return (
@@ -188,11 +243,36 @@ export default function CreateGame() {
         </div>
 
         {showMap && (
-          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-lg p-4 max-w-xl w-full relative">
-              <button className="absolute top-2 right-2 text-lg" onClick={() => setShowMap(false)}>&times;</button>
-              <h2 className="text-lg font-semibold mb-2">Pick Location</h2>
-              <InlineLocationPicker value={coords || undefined} onChange={handleMapSelect} />
+          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full relative overflow-hidden">
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-lg font-bold text-textPrimary">Pick Game Location</h2>
+                <button className="p-2 hover:bg-gray-100 rounded-full transition-colors" onClick={() => setShowMap(false)}>&times;</button>
+              </div>
+              
+              <div className="relative">
+                <InlineLocationPicker value={coords || undefined} onChange={handleMapSelect} />
+                <div className="absolute top-4 left-4 right-4 z-[1000] pointer-events-none">
+                  {/* The search bar is already injected by leaflet-geosearch */}
+                </div>
+              </div>
+
+              <div className="p-5 bg-gray-50 space-y-4">
+                {address && (
+                  <div className="flex items-start gap-3 bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                    <FiMapPin className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-textPrimary leading-relaxed">{address}</p>
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <button onClick={() => setShowMap(false)} className="flex-1 py-3 rounded-xl bg-white border border-gray-200 text-textSecondary font-semibold hover:bg-gray-50 transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={confirmLocation} className="flex-1 btn-primary py-3 rounded-xl font-bold shadow-lg shadow-accent/20">
+                    Confirm Location
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

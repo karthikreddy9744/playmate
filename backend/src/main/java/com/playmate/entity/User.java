@@ -111,6 +111,21 @@ public class User {
     @Column(name = "no_show_count")
     private Integer noShowCount = 0;
 
+    @Column(name = "games_created")
+    private Integer gamesCreated = 0;
+
+    @Column(name = "games_cancelled")
+    private Integer gamesCancelled = 0;
+
+    @Column(name = "last_minute_cancellations")
+    private Integer lastMinuteCancellations = 0;
+
+    @Column(name = "host_reliability_score", precision = 5, scale = 2)
+    private BigDecimal hostReliabilityScore = BigDecimal.valueOf(100.0);
+
+    @Column(name = "play_again_percentage", precision = 5, scale = 2)
+    private BigDecimal playAgainPercentage = BigDecimal.ZERO;
+
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
 

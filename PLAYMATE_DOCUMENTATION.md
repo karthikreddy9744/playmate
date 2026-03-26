@@ -213,6 +213,11 @@ User (1) ──→ (*) Notification       FK: notifications.user_id
 | total_games_played | INT | DEFAULT 0 |
 | average_rating | DECIMAL(3,2) | DEFAULT 0.00 |
 | no_show_count | INT | DEFAULT 0 |
+| games_created | INT | DEFAULT 0 |
+| games_cancelled | INT | DEFAULT 0 |
+| last_minute_cancellations | INT | DEFAULT 0 |
+| host_reliability_score | DECIMAL(5,2) | DEFAULT 100.00 |
+| play_again_percentage | DECIMAL(5,2) | DEFAULT 0.00 |
 | last_login | TIMESTAMP | |
 | created_at | TIMESTAMP | NOT NULL, DEFAULT NOW |
 | updated_at | TIMESTAMP | |
@@ -225,7 +230,7 @@ User (1) ──→ (*) Notification       FK: notifications.user_id
 |---|---|---|
 | id | BIGINT | PK, IDENTITY |
 | title | VARCHAR(200) | NOT NULL |
-| description | TEXT | |
+| description | VARCHAR(1000) | |
 | sport_type | ENUM | BADMINTON, CRICKET, FOOTBALL, … |
 | skill_level | ENUM | BEGINNER, INTERMEDIATE, ADVANCED, ALL_LEVELS |
 | max_players | INT | NOT NULL |
@@ -300,10 +305,13 @@ Indexes: `sender_id`, `receiver_id`, `(sender_id, receiver_id)`
 | skill_match | INT (1–5) | |
 | friendliness | INT (1–5) | |
 | review_text | VARCHAR(500) | |
+| play_again | BOOLEAN | |
+| is_hidden | BOOLEAN | DEFAULT TRUE |
+| revealed_at | TIMESTAMP | |
 | created_at | TIMESTAMP | |
 
 Unique: (rater_id, ratee_id, game_id)
-Indexes: `ratee_id`, `game_id`, `rating_type`
+Indexes: `ratee_id`, `game_id`, `rating_type`, `is_hidden`
 
 #### notifications
 
@@ -311,7 +319,7 @@ Indexes: `ratee_id`, `game_id`, `rating_type`
 |---|---|---|
 | id | BIGINT | PK |
 | user_id | BIGINT | FK → users.id |
-| type | ENUM | GAME_REQUEST, GAME_ACCEPTED, GAME_REJECTED, GAME_REMINDER, GAME_CANCELLED, RATING_RECEIVED, SYSTEM, WELCOME |
+| type | ENUM | GAME_REQUEST, GAME_ACCEPTED, GAME_REJECTED, GAME_REMINDER, GAME_CANCELLED, RATING_RECEIVED, RATING_REMINDER, SYSTEM, WELCOME |
 | title | VARCHAR(200) | |
 | message | VARCHAR(500) | |
 | is_read | BOOLEAN | DEFAULT FALSE |
@@ -426,20 +434,101 @@ Frontend badges:
 - FULL → amber badge
 - COMPLETED/CANCELLED → greyed card with disabled button
 
-### 6.6 Post-Game Ratings
+### 6.1 Game Lifecycle & Cancellation
 
-- **Bidirectional:** Host rates participants (`FOR_PARTICIPANT`); participants rate host (`FOR_HOST`)
-- **Three categories (1–5 stars each):** Punctuality, Skill Match, Friendliness
-- **Optional text review** (500 chars)
-- **One rating per rater-ratee-game** (unique constraint)
-- Profile shows separate "Hosting Ratings" and "Joining Ratings" sections
+#### T_start = Start Time, T_end = T_start + Duration
 
-### 6.7 Notifications
+- **Case 1: Cancellation Before Start (NOW < T_start)**
+    - Status: `CANCELLED`.
+    - Penalty: Increment `games_cancelled`.
+    - Notifications: All participants notified immediately.
+    - Rating: Permanently disabled for this game.
+    - Messages: Visible for **10 minutes** after cancellation, then deleted.
+- **Case 2: Last-Minute Cancellation (T_start - NOW ≤ 2 hours)**
+    - Status: `CANCELLED`.
+    - Penalty: Increment `games_cancelled` AND `last_minute_cancellations`. Reliability score updated.
+    - Messages: Visible for **10 minutes**, then deleted.
+- **Case 3: Cancellation with No Participants**
+    - Status: `CANCELLED`.
+    - Messages: Deleted immediately.
+- **Case 4: Action After Start (NOW ≥ T_start)**
+    - Status: `ARCHIVED`.
+    - Behavior: Cannot be cancelled; converted to archive internally. Does not affect rating or reliability.
 
-- Push notifications via Firebase Cloud Messaging (FCM)
-- In-app notification bell with unread count
-- Types: game request, accepted, rejected, reminder, cancelled, rating received, system, welcome
-- Silent notification toggle per user
+#### Game Completion Flow (The "Rating Window")
+
+The system uses a precise timeline relative to **T_end** (Game End Time = Start Time + Duration) to manage feedback and data cleanup:
+
+| Time Offset | Event | Impact on User Experience |
+|---|---|---|
+| **T_end + 15 min** | **Feedback Activated** | The game moves to `COMPLETED`. Chat history is **permanently deleted** from DB. A notification is sent: *"Rate your game experience"*. |
+| **T_end + 60 min** | **Automatic Popup** | When a user visits the **Requests** tab, the rating modal pops up automatically (once per game). |
+| **T_end + 24 hr** | **Final Reminder** | A final push notification is sent to users who haven't rated yet. |
+| **T_end + 48 hr** | **Feedback Closed** | The rating form becomes unavailable. Any hidden (blind) ratings are automatically revealed. |
+
+---
+
+### 6.2 Post-Game Ratings & Feedback System
+
+The rating system is designed to be **unbiased, blind, and time-sensitive**, ensuring high-quality community feedback.
+
+#### 6.2.1 How it Works (UX Flow)
+
+1.  **Location:** All rating actions happen within the **Host Requests** page (`/requests`).
+2.  **Visual Cues:**
+    -   Between `T_end + 15 min` and `T_end + 48 hr`, an accepted request card displays a pulsing amber badge: **"FEEDBACK ACTIVE"**.
+    -   The entire card becomes clickable, serving as a large trigger for the feedback form.
+3.  **The Automatic Popup:**
+    -   To ensure high participation, the system triggers a **one-time automatic popup** exactly 1 hour after the game ends.
+    -   If a user navigates to the Requests page after the 1-hour mark, the modal opens instantly without requiring a click.
+    -   *Technical note:* Frontend uses `localStorage` to ensure the same user isn't prompted multiple times for the same game.
+
+#### 6.2.2 Blind Reveal Mechanism
+
+To prevent "revenge rating" or biased feedback:
+-   Ratings are stored with `is_hidden = true`.
+-   **Reveal Condition:** Ratings are only visible on a user's profile once **both** the host and the participant have rated each other.
+-   **Grace Period:** If one party fails to rate, the submitted rating is automatically revealed after the **48-hour window** expires.
+
+#### 6.2.3 Trust & Verification: "Was the game conducted?" (Accepted Users Only)
+
+To ensure high platform integrity and gain community trust, the rating system includes a critical verification step for **Accepted Participants** only. This feature allows the platform to monitor and predict the performance of game hosts.
+
+-   **The Feature:** A mandatory verification toggle: *"Was this game actually conducted?"* (Yes/No).
+-   **Who Sees It?** Only **Accepted Participants** when rating the host. The game creator (host) does not see this question when rating participants.
+-   **Universal Rating Availability:** Rating is allowed for **all game states** (Completed, Cancelled, or Deleted) once the game end time (`T_end + 15 min`) is reached. This ensures that participants can report if a host cancelled a game but then "ghosted" the session.
+-   **Performance Metrics & Trust:**
+    -   **Ghosting Penalty:** If a participant selects **"No"**, the host's **Reliability Score** is immediately reduced by **5%**.
+    -   **Platform Trust Index:** The Admin Dashboard tracks the ratio of conducted vs. ghosted games to maintain a high level of community trust.
+    -   **Predictive Analysis:** This data helps the platform identify patterns of unreliable hosts even if they proactively cancel games in the system.
+
+#### 6.2.4 Rating Categories & Metrics
+
+-   **Star Ratings (1–5):** Users rate across three specific categories:
+    -   **Punctuality:** Did they show up on time?
+    -   **Skill Match:** Was their skill level as advertised?
+    -   **Friendliness:** Were they respectful and easy to play with?
+-   **Play Again %:** A binary "Would you play with this person again?" toggle that contributes to a public percentage on the user's profile.
+-   **Host Reliability:** A calculated score for hosts based on successful games vs. cancellations (with heavy penalties for last-minute cancels and ghosting reports).
+
+#### 6.2.5 Safety & Logic Constraints
+
+-   **No Interaction, No Rating:** Feedback is disabled for games with ≤ 1 participant.
+-   **Cancellation Rule:** If a game is deleted/cancelled **before** it starts, the feedback form is permanently blocked (Case 1).
+-   **Timeline Consistency:** The feedback form follows the standard `T_end + 15 min` to `T_end + 48 hr` window for all participants.
+-   **Chat Separation:** Messages are purged **before** the primary feedback popup appears (T_end + 15m vs T_end + 60m) to ensure ratings are based on the actual game experience, not chat history.
+
+---
+
+### 6.3 Messaging (Upgraded)
+
+- **Location Sharing:** Both Direct Messages and Group Chats feature a **green location icon** that opens a search-enabled map modal to share venues/meeting points.
+- **Mini-Map Previews:** Messages containing Google Maps links render a mini-map preview directly in the chat bubble.
+- **Trusted Links:** Links to trusted domains (Amazon, Flipkart, Nike, Adidas, etc.) are styled in **green** (for incoming) or **white** (for outgoing) and are clickable. Non-trusted links are rendered as plain text for safety.
+- **Lifecycle:** 
+    - Cancelled Games: Chat closes 10 mins after cancellation.
+    - Completed Games: Chat closes 30 mins after T_end.
+    - No Participants: Chat closes immediately.
 
 ---
 
@@ -513,18 +602,18 @@ Spring property: `playmate.msg.encryption-key=${PLAYMATE_MSG_ENCRYPTION_KEY}`
 
 **Messages** are purged after a game ends — the **game entity stays in the DB** for admin analytics.
 
-When a game **ends** (now > start + duration + 30 min grace) or is **cancelled/deleted**:
+When a game **ends** (T_end + 15 min) or is **cancelled/deleted**:
 
 | Resource | Purge Rule |
 |---|---|
 | Group chat | All messages with the game's `gameId` deleted |
-| Direct messages | DMs between each pair of participants deleted **only if** that pair shares no other active game |
-| Game entity | **Kept in DB** — status computed as COMPLETED; visible to admin for analytics |
+| Direct messages | DMs between each pair of participants deleted immediately upon game completion/cancellation |
+| Game entity | **Kept in DB** (Soft-deleted) — status computed as COMPLETED/CANCELLED; visible to admin for analytics |
 
 **Purge triggers:**
 - `GameService.cancelGame()` — host cancels (messages purged immediately)
-- `GameService.deleteGame()` — host deletes (game + messages removed)
-- `CleanupScheduler` — runs every 15 minutes; purges messages for games that ended 30+ min ago
+- `GameService.deleteGame()` — host deletes (game status updated + messages removed)
+- `RatingScheduler` — runs every minute; purges messages for games that reached T_end + 15 min mark
 
 ### 8.2.1 Game Visibility & Request Deadline
 
@@ -925,15 +1014,16 @@ Frontend: build `dist/` then deploy to Vercel (zero config with `vercel.json` SP
 - AES-256-GCM message encryption at rest
 - Auto-purge of messages on game end/cancel
 - Active-game-only messaging restriction
-- Bidirectional post-game ratings (host ↔ participant)
+- Bidirectional post-game ratings (host ↔ participant) with 48h blind reveal
+- Automatic rating prompt (badge + popup) on HostRequests page
+- Brevo transactional emails (OTP, welcome, reminders)
 - Admin dashboard (20 analytics endpoints, India map, charts, CSV export)
 - Firebase Auth (Google + email/password), FCM push notifications
-- Cloudinary image uploads, Brevo email service
+- Cloudinary image uploads
 - Cypress E2E test suite
 
 ### Planned
 
-- Brevo transactional emails (OTP, welcome)
 - Recurring games and private groups
 - Venue database (community-sourced)
 - Advanced location-based search with map view

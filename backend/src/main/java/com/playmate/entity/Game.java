@@ -51,8 +51,8 @@ public class Game {
     @Size(min = 5, max = 100, message = "Title must be between 5 and 100 characters")
     private String title;
     
-    @Column(length = 500)
-    @Size(max = 500, message = "Description cannot exceed 500 characters")
+    @Column(length = 1000)
+    @Size(max = 1000, message = "Description cannot exceed 1000 characters")
     private String description;
     
     @Column(nullable = false, length = 50)
@@ -75,8 +75,8 @@ public class Game {
     private LocalDateTime gameDateTime;
     
     @Column(name = "duration_minutes")
-    @Min(value = 30, message = "Minimum game duration is 30 minutes")
-    @Max(value = 240, message = "Maximum game duration is 4 hours")
+    @Min(value = 20, message = "Minimum game duration is 20 minutes")
+    @Max(value = 360, message = "Maximum game duration is 6 hours")
     private Integer durationMinutes = 60;
     
     @Column(name = "location_lat", precision = 10, scale = 8, nullable = false)
@@ -85,7 +85,7 @@ public class Game {
     @Column(name = "location_lng", precision = 11, scale = 8, nullable = false)
     private BigDecimal locationLng;
     
-    @Column(name = "location_address", length = 200)
+    @Column(name = "location_address", length = 500)
     private String locationAddress;
     
     @Column(name = "location_city", length = 100, nullable = false)
@@ -96,6 +96,17 @@ public class Game {
     
     @Column(name = "is_cancelled")
     private Boolean isCancelled = false;
+
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
+
+    public enum GameStatus {
+        OPEN, CANCELLED, COMPLETED, ARCHIVED
+    }
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private GameStatus status = GameStatus.OPEN;
     
     @Column(name = "created_by", nullable = false)
     private Long createdBy;
@@ -118,7 +129,7 @@ public class Game {
     @Column(name = "equipment_provided")
     private Boolean equipmentProvided = false;
     
-    @Column(name = "equipment_details", length = 200)
+    @Column(name = "equipment_details", length = 500)
     private String equipmentDetails;
     
     @Column(name = "rating_required")

@@ -75,6 +75,19 @@ public class Rating {
   @Column(length = 500)
   private String reviewText;
 
+  @Column(name = "play_again")
+  private Boolean playAgain;
+
+  /** ONLY for FOR_HOST ratings. Was the game actually played? */
+  @Column(name = "was_game_conducted")
+  private Boolean wasGameConducted;
+
+  @Column(name = "is_hidden")
+  private Boolean isHidden = true;
+
+  @Column(name = "revealed_at")
+  private LocalDateTime revealedAt;
+
   @Column(name = "created_at", nullable = false)
   private LocalDateTime createdAt = LocalDateTime.now();
 }

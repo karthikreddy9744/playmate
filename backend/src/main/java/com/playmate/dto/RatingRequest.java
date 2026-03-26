@@ -4,9 +4,13 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
 public class RatingRequest {
     @NotNull(message = "Game ID is required")
     private Long gameId;
@@ -28,4 +32,9 @@ public class RatingRequest {
 
     @Size(max = 500)
     private String reviewText;
+
+    private Boolean playAgain;
+
+    /** Only for participant rating the host */
+    private Boolean wasGameConducted;
 }

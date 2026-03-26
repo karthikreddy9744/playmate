@@ -31,6 +31,7 @@ interface Game {
   participantIds?: number[]
   status?: string // UPCOMING | LIVE | COMPLETED | CANCELLED | FULL
   distanceKm?: number
+  hasRated?: boolean
 }
 
 interface Participant { id: number; name: string; profilePictureUrl?: string }
@@ -41,6 +42,7 @@ interface RatingForm {
   skillMatch: number
   friendliness: number
   reviewText: string
+  playAgain: boolean
 }
 
 // Status badge config
@@ -69,12 +71,6 @@ export default function Games() {
   const [backendUserId, setBackendUserId] = useState<number | null>(null)
   const [tab, setTab] = useState<'discover' | 'my'>('discover')
   const [myGames, setMyGames] = useState<Game[]>([])
-
-  // Rating modal state
-  const [ratingModal, setRatingModal] = useState<{ gameId: number; gameTitle: string } | null>(null)
-  const [participants, setParticipants] = useState<Participant[]>([])
-  const [ratingForms, setRatingForms] = useState<RatingForm[]>([])
-  const [submittingRating, setSubmittingRating] = useState(false)
 
   // Fetch backend user ID
   useEffect(() => {
@@ -111,64 +107,6 @@ export default function Games() {
       navigate('/login')
     } else {
       navigate('/create')
-    }
-  }
-
-  // Open rating modal for a completed game
-  const openRatingModal = async (game: Game) => {
-    setRatingModal({ gameId: game.id, gameTitle: game.title })
-    try {
-      const isCreator = backendUserId && game.createdBy === backendUserId
-      let toRate: Participant[] = []
-
-      if (isCreator) {
-        // Creator rates participants
-        const { data } = await api.get(`/games/${game.id}/participants`)
-        toRate = (data as Participant[]).filter(p => p.id !== backendUserId)
-      } else {
-        // Participant rates the host
-        const { data: hostData } = await api.get(`/users/${game.createdBy}`)
-        toRate = [{ id: hostData.id, name: hostData.name, profilePictureUrl: hostData.profilePictureUrl }]
-      }
-
-      if (toRate.length === 0) {
-        toast.info('No one to rate yet')
-        setRatingModal(null)
-        return
-      }
-
-      setParticipants(toRate)
-      setRatingForms(toRate.map(p => ({ rateeId: p.id, punctuality: 5, skillMatch: 5, friendliness: 5, reviewText: '' })))
-    } catch {
-      toast.error('Failed to load players to rate')
-      setRatingModal(null)
-    }
-  }
-
-  const updateRating = (rateeId: number, field: keyof RatingForm, value: number | string) => {
-    setRatingForms(prev => prev.map(f => f.rateeId === rateeId ? { ...f, [field]: value } : f))
-  }
-
-  const submitRatings = async () => {
-    if (!backendUserId || !ratingModal) return
-    setSubmittingRating(true)
-    try {
-      for (const form of ratingForms) {
-        await api.post(`/ratings?raterId=${backendUserId}`, {
-          gameId: ratingModal.gameId,
-          rateeId: form.rateeId,
-          punctuality: form.punctuality,
-          skillMatch: form.skillMatch,
-          friendliness: form.friendliness,
-          reviewText: form.reviewText || undefined,
-        })
-      }
-      toast.success('Ratings submitted! Thank you.')
-      setRatingModal(null)
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Failed to submit ratings')
-    } finally {
-      setSubmittingRating(false)
     }
   }
 
@@ -217,7 +155,7 @@ export default function Games() {
           if (customDateTo) params.set('to', `${customDateTo}T23:59:59`)
         }
 
-        if (userLocation) {
+        if (userLocation && !isNaN(userLocation.lat) && !isNaN(userLocation.lng)) {
           params.set('lat', String(userLocation.lat))
           params.set('lng', String(userLocation.lng))
           if (radius < 100) params.set('radius', String(radius))
@@ -225,8 +163,7 @@ export default function Games() {
         }
         if (availableOnly) params.set('availableOnly', 'true')
 
-        const qs = params.toString()
-        const response = await api.get('/games' + (qs ? `?${qs}` : ''))
+        const response = await api.get('/games', { params })
         setGames(response.data)
       } catch (error) {
         console.error('Error fetching games:', error)
@@ -247,7 +184,9 @@ export default function Games() {
   // Fetch My Games from dedicated endpoint
   useEffect(() => {
     if (backendUserId && tab === 'my') {
-      api.get('/games/mine').then(r => setMyGames(r.data)).catch(() => toast.error('Failed to load your games'))
+      api.get('/games/mine').then(r => {
+        setMyGames(r.data as Game[])
+      }).catch(() => toast.error('Failed to load your games'))
     }
   }, [backendUserId, tab])
 
@@ -523,17 +462,9 @@ export default function Games() {
 
                     if (ended) {
                       return (
-                        <>
-                          <button disabled className="w-full py-3 rounded-xl bg-gray-200 text-gray-500 cursor-not-allowed font-medium">
-                            {status === 'CANCELLED' ? 'Game Cancelled' : 'Game Ended'}
-                          </button>
-                          {status === 'COMPLETED' && backendUserId && (isCreator || isParticipant) && (
-                            <button onClick={() => openRatingModal(game)}
-                              className="w-full py-3 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors font-medium flex items-center justify-center gap-2">
-                              <FiStar className="w-4 h-4" /> {isCreator ? 'Rate Participants' : 'Rate Host'}
-                            </button>
-                          )}
-                        </>
+                        <div className="flex-1 text-center py-2 px-4 bg-gray-50 text-gray-400 rounded-xl text-sm font-medium border border-gray-100">
+                          {status === 'CANCELLED' ? 'Game Cancelled' : 'Game Ended'}
+                        </div>
                       )
                     }
 
@@ -609,73 +540,7 @@ export default function Games() {
         )}
       </div>
 
-      {/* ─── Rating Modal ─── */}
-      {ratingModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setRatingModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-xl font-bold text-textPrimary">
-                  {participants.length === 1 && participants[0]?.id !== backendUserId ? 'Rate Host' : 'Rate Participants'}
-                </h2>
-                <p className="text-sm text-textSecondary">{ratingModal.gameTitle}</p>
-              </div>
-              <button onClick={() => setRatingModal(null)} className="p-2 rounded-lg hover:bg-gray-100"><FiX className="w-5 h-5" /></button>
-            </div>
 
-            {participants.length === 0 ? (
-              <p className="text-textSecondary text-center py-8">No other participants to rate.</p>
-            ) : (
-              <div className="space-y-6">
-                {participants.map(p => {
-                  const form = ratingForms.find(f => f.rateeId === p.id)
-                  if (!form) return null
-                  return (
-                    <div key={p.id} className="border border-border rounded-xl p-4">
-                      <div className="flex items-center gap-3 mb-3">
-                        {p.profilePictureUrl ? (
-                          <img src={p.profilePictureUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent font-bold">{p.name?.[0]?.toUpperCase() || '?'}</div>
-                        )}
-                        <span className="font-semibold text-textPrimary">{p.name}</span>
-                      </div>
-
-                      {(['punctuality', 'skillMatch', 'friendliness'] as const).map(field => (
-                        <div key={field} className="mb-3">
-                          <label className="text-xs text-textSecondary capitalize mb-1 block">
-                            {field === 'skillMatch' ? 'Skill Match' : field}
-                          </label>
-                          <div className="flex gap-1">
-                            {[1, 2, 3, 4, 5].map(v => (
-                              <button key={v} type="button"
-                                onClick={() => updateRating(p.id, field, v)}
-                                className={`w-8 h-8 rounded-lg text-sm font-bold transition-all ${
-                                  v <= form[field] ? 'bg-amber-400 text-white' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                                }`}>{v}</button>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-
-                      <div>
-                        <label className="text-xs text-textSecondary mb-1 block">Review (optional)</label>
-                        <textarea value={form.reviewText} onChange={e => updateRating(p.id, 'reviewText', e.target.value)}
-                          className="input-field text-sm" rows={2} maxLength={500} placeholder="Brief feedback..." />
-                      </div>
-                    </div>
-                  )
-                })}
-
-                <button onClick={submitRatings} disabled={submittingRating}
-                  className="btn-primary w-full !py-3">
-                  {submittingRating ? 'Submitting...' : `Submit Rating${participants.length > 1 ? 's' : ''}`}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

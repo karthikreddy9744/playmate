@@ -39,4 +39,6 @@ public class GameResponse {
     private String status;
     /** Distance from the searching user in km (populated when lat/lng provided) */
     private Double distanceKm;
+    /** Whether the CURRENTLY LOGGED IN user has already rated this game */
+    private Boolean hasRated;
 }

@@ -2,16 +2,19 @@ package com.playmate.service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.playmate.dto.GameRequestResponse;
 import com.playmate.entity.Game;
 import com.playmate.entity.GameRequest;
 import com.playmate.entity.Notification;
 import com.playmate.entity.User;
 import com.playmate.repository.GameRepository;
 import com.playmate.repository.GameRequestRepository;
+import com.playmate.repository.RatingRepository;
 import com.playmate.repository.UserRepository;
 
 @Service
@@ -20,28 +23,29 @@ public class GameRequestService {
     private final GameRequestRepository gameRequestRepository;
     private final GameRepository gameRepository;
     private final UserRepository userRepository;
+    private final RatingRepository ratingRepository;
     private final NotificationService notificationService;
     private final MessageService messageService;
     private final GameService gameService;
 
-    public GameRequestService(GameRequestRepository gameRequestRepository, GameRepository gameRepository, UserRepository userRepository, NotificationService notificationService, MessageService messageService, GameService gameService) {
+    public GameRequestService(GameRequestRepository gameRequestRepository, GameRepository gameRepository, UserRepository userRepository, RatingRepository ratingRepository, NotificationService notificationService, MessageService messageService, GameService gameService) {
         this.gameRequestRepository = gameRequestRepository;
         this.gameRepository = gameRepository;
         this.userRepository = userRepository;
+        this.ratingRepository = ratingRepository;
         this.notificationService = notificationService;
         this.messageService = messageService;
         this.gameService = gameService;
     }
 
     @Transactional
-    public GameRequest createRequest(Long gameId, String firebaseUid, String message) {
+    public GameRequestResponse createRequest(Long gameId, String firebaseUid, String message) {
         Game game = gameRepository.findById(gameId).orElseThrow(() -> new RuntimeException("Game not found"));
 
         if (Boolean.TRUE.equals(game.getIsCancelled())) {
             throw new RuntimeException("Cannot request a cancelled game");
         }
 
-        // Enforce 10-minute deadline: no requests within 10 min of game start
         if (game.getGameDateTime() != null) {
             LocalDateTime deadline = game.getGameDateTime().minusMinutes(10);
             if (LocalDateTime.now().isAfter(deadline)) {
@@ -52,19 +56,16 @@ public class GameRequestService {
         User requester = userRepository.findByFirebaseUid(firebaseUid)
                 .orElseThrow(() -> new RuntimeException("User not found with Firebase UID"));
 
-        // Prevent duplicate request
         gameRequestRepository.findByGameIdAndRequesterId(gameId, requester.getId()).ifPresent(r -> {
             throw new RuntimeException("You have already requested to join this game");
         });
 
-        // Overlap check: user must not have another active game overlapping on the same day
         if (game.getGameDateTime() != null) {
             Integer durVal = game.getDurationMinutes();
             int dur = durVal != null ? durVal : 60;
             gameService.checkNoOverlappingGame(requester.getId(), game.getGameDateTime(), dur, gameId);
         }
 
-        // Check available slots considering pending requests
         int pending = gameRequestRepository.findByGameIdAndStatus(gameId, GameRequest.RequestStatus.PENDING).size();
         Integer mp = game.getMaxPlayers();
         Integer cp = game.getCurrentPlayers();
@@ -83,7 +84,6 @@ public class GameRequestService {
 
         GameRequest saved = gameRequestRepository.save(req);
 
-        // Notify host
         notificationService.createNotification(
             game.getCreatedBy(),
             Notification.NotificationType.GAME_REQUEST,
@@ -93,29 +93,81 @@ public class GameRequestService {
             "GAME"
         );
 
-        return saved;
+        return toResponse(saved, requester.getId());
     }
 
-    public List<GameRequest> listRequestsForGame(Long gameId) {
-        return gameRequestRepository.findByGameId(gameId);
+    @Transactional(readOnly = true)
+    public List<GameRequestResponse> listRequestsForGame(Long gameId) {
+        return gameRequestRepository.findByGameId(gameId).stream()
+                .map(req -> toResponse(req, null))
+                .collect(Collectors.toList());
     }
 
-    public List<GameRequest> listRequestsForHost(Long hostUserId) {
-        return gameRequestRepository.findByGameCreatedBy(hostUserId);
+    @Transactional(readOnly = true)
+    public List<GameRequestResponse> listRequestsForHost(Long hostUserId) {
+        return gameRequestRepository.findByGameCreatedBy(hostUserId).stream()
+                .map(req -> toResponse(req, hostUserId))
+                .collect(Collectors.toList());
     }
 
-    public List<GameRequest> listRequestsByRequester(Long requesterId) {
-        return gameRequestRepository.findByRequesterId(requesterId);
+    @Transactional(readOnly = true)
+    public List<GameRequestResponse> listRequestsByRequester(Long requesterId) {
+        return gameRequestRepository.findByRequesterId(requesterId).stream()
+                .map(req -> toResponse(req, requesterId))
+                .collect(Collectors.toList());
+    }
+
+    private GameRequestResponse toResponse(GameRequest req, Long currentUserId) {
+        GameRequestResponse res = new GameRequestResponse();
+        res.setId(req.getId());
+        res.setGameId(req.getGame().getId());
+        res.setGameTitle(req.getGame().getTitle());
+        res.setRequesterId(req.getRequester().getId());
+        res.setRequesterName(req.getRequester().getName());
+        res.setRequesterPhotoUrl(req.getRequester().getProfilePictureUrl());
+        res.setStatus(req.getStatus().name());
+        res.setMessage(req.getMessage());
+        res.setCreatedAt(req.getCreatedAt() != null ? req.getCreatedAt().toString() : null);
+        res.setRespondedAt(req.getRespondedAt() != null ? req.getRespondedAt().toString() : null);
+        
+        // Game details for rating logic
+        res.setGameStartTime(req.getGame().getGameDateTime() != null ? req.getGame().getGameDateTime().toString() : null);
+        res.setGameDurationMinutes(req.getGame().getDurationMinutes());
+        
+        if (currentUserId != null) {
+            Long hostId = req.getGame().getCreatedBy();
+            Long raterId = currentUserId;
+            Long rateeId;
+            
+            if (currentUserId.equals(hostId)) {
+                // Current user is the host, rating the requester
+                rateeId = req.getRequester().getId();
+            } else {
+                // Current user is the requester, rating the host
+                rateeId = hostId;
+            }
+            
+            res.setHasRated(ratingRepository.existsByRaterIdAndRateeIdAndGameId(raterId, rateeId, req.getGame().getId()));
+        }
+        
+        // Populate requester stats
+        User requester = req.getRequester();
+        if (requester != null) {
+            res.setRequesterRating(requester.getAverageRating() != null ? requester.getAverageRating().doubleValue() : 0.0);
+            res.setRequesterGamesPlayed(requester.getTotalGamesPlayed());
+            res.setRequesterNoShows(requester.getNoShowCount());
+            res.setRequesterVerified(requester.getVerifiedEmail());
+        }
+        return res;
     }
 
     @Transactional
-    public GameRequest acceptRequest(Long gameId, Long requestId, Long actingUserId) {
+    public GameRequestResponse acceptRequest(Long gameId, Long requestId, Long actingUserId) {
         Game game = gameRepository.findById(gameId).orElseThrow(() -> new RuntimeException("Game not found"));
         if (!game.getCreatedBy().equals(actingUserId)) {
             throw new RuntimeException("Only host can accept requests");
         }
 
-        // Block accepting requests within 10 min of game start
         if (game.getGameDateTime() != null) {
             LocalDateTime deadline = game.getGameDateTime().minusMinutes(10);
             if (LocalDateTime.now().isAfter(deadline)) {
@@ -132,7 +184,7 @@ public class GameRequestService {
         if (game.getParticipants().contains(requester)) {
             req.setStatus(GameRequest.RequestStatus.REJECTED);
             req.setUpdatedAt(LocalDateTime.now());
-            return gameRequestRepository.save(req);
+            return toResponse(gameRequestRepository.save(req), actingUserId);
         }
 
         Integer cpVal = game.getCurrentPlayers();
@@ -143,7 +195,6 @@ public class GameRequestService {
             throw new RuntimeException("Game is already full");
         }
 
-        // Re-check overlap at acceptance time (requester's schedule may have changed)
         if (game.getGameDateTime() != null) {
             Integer durVal = game.getDurationMinutes();
             int dur = durVal != null ? durVal : 60;
@@ -159,7 +210,6 @@ public class GameRequestService {
         req.setRespondedAt(LocalDateTime.now());
         GameRequest saved = gameRequestRepository.save(req);
 
-        // Notify requester
         notificationService.createNotification(
             requester.getId(),
             Notification.NotificationType.GAME_ACCEPTED,
@@ -169,19 +219,17 @@ public class GameRequestService {
             "GAME"
         );
 
-        // Auto-send a welcome DM from host to accepted player so both see each other in inbox
         try {
             messageService.sendAutoWelcomeDm(actingUserId, requester.getId(), game.getTitle());
         } catch (Exception e) {
-            // Non-critical — don't fail the acceptance if DM fails
             System.err.println("[GameRequestService] Auto-welcome DM failed: " + e.getMessage());
         }
 
-        return saved;
+        return toResponse(saved, actingUserId);
     }
 
     @Transactional
-    public GameRequest rejectRequest(Long gameId, Long requestId, Long actingUserId, String reason) {
+    public GameRequestResponse rejectRequest(Long gameId, Long requestId, Long actingUserId, String reason) {
         Game game = gameRepository.findById(gameId).orElseThrow(() -> new RuntimeException("Game not found"));
         if (!game.getCreatedBy().equals(actingUserId)) {
             throw new RuntimeException("Only host can reject requests");
@@ -197,7 +245,6 @@ public class GameRequestService {
         req.setRespondedAt(LocalDateTime.now());
         GameRequest saved = gameRequestRepository.save(req);
 
-        // Notify requester
         notificationService.createNotification(
             req.getRequester().getId(),
             Notification.NotificationType.GAME_REJECTED,
@@ -207,6 +254,6 @@ public class GameRequestService {
             "GAME"
         );
 
-        return saved;
+        return toResponse(saved, actingUserId);
     }
 }

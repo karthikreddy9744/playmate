@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FiSend, FiSearch, FiMessageCircle, FiArrowLeft, FiLoader, FiAlertTriangle, FiMapPin } from 'react-icons/fi'
-import { MapContainer, TileLayer, Marker } from 'react-leaflet'
+import { FiSend, FiSearch, FiMessageCircle, FiArrowLeft, FiLoader, FiAlertTriangle, FiMapPin, FiMap, FiCalendar, FiClock, FiUsers, FiDollarSign } from 'react-icons/fi'
+import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet'
+import { GeoSearchControl, OpenStreetMapProvider } from 'leaflet-geosearch'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import 'leaflet-geosearch/dist/geosearch.css'
 import { MdVerified } from 'react-icons/md'
 import { api } from '../lib/api'
 import { toast } from 'react-toastify'
@@ -50,6 +52,105 @@ interface GroupMember {
   profilePictureUrl?: string
 }
 
+// Reuse InlineLocationPicker logic for chat location sending
+function InlineLocationPicker({ value, onChange }: { value?: { lat: number; lng: number }, onChange: (coords: { lat: number; lng: number }, address: string) => void }) {
+  const [position, setPosition] = useState<{ lat: number; lng: number } | null>(value || null)
+  const provider = new OpenStreetMapProvider()
+
+  const RecenterOnPosition: React.FC<{ pos: { lat: number; lng: number } | null }> = ({ pos }) => {
+    const map = useMap();
+    useEffect(() => {
+      if (pos) map.setView(pos, map.getZoom());
+    }, [map, pos]);
+    return null;
+  };
+
+  const SearchControlComp = () => {
+    const map = useMap()
+    useEffect(() => {
+      const searchControl = new (GeoSearchControl as any)({
+        provider,
+        style: 'bar',
+        showMarker: false,
+        showPopup: false,
+        autoClose: true,
+        retainZoomLevel: true,
+        animateZoom: false,
+        keepResult: true,
+        searchLabel: 'Enter address',
+      })
+      map.addControl(searchControl)
+
+      map.on('geosearch/showlocation', (result: any) => {
+        if (result && result.location) {
+          const { x, y, label } = result.location;
+          const newPos = { lat: y, lng: x };
+          setPosition(newPos);
+          onChange(newPos, label);
+        }
+      });
+
+      return () => { 
+        map.off('geosearch/showlocation');
+        try {
+          if (map && (map as any)._container) {
+            map.removeControl(searchControl);
+          }
+        } catch (e) {
+          console.warn('Failed to remove search control safely:', e);
+        }
+      }
+    }, [map])
+    return null
+  }
+
+  function LocationMarker() {
+    useMapEvents({
+      click(e: any) {
+        setPosition(e.latlng)
+        provider.search({ query: `${e.latlng.lat},${e.latlng.lng}` }).then((results: any[]) => {
+          const address = results[0]?.label || ''
+          onChange(e.latlng, address)
+        })
+      }
+    })
+    return position === null ? null : (
+      <Marker
+        position={position}
+        interactive
+        draggable={true}
+        eventHandlers={{
+          dragend: (e: any) => {
+            const marker = e.target
+            const latlng = marker.getLatLng()
+            setPosition(latlng)
+            provider.search({ query: `${latlng.lat},${latlng.lng}` }).then((results: any[]) => {
+              const address = results[0]?.label || ''
+              onChange(latlng, address)
+            })
+          }
+        }}
+      />
+    )
+  }
+
+  return (
+    <MapContainer
+      center={value || { lat: 12.9716, lng: 77.5946 }}
+      zoom={13}
+      style={{ height: 400, width: '100%' }}
+    >
+      <TileLayer
+        attribution='&copy; <a href="https://osm.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      <RecenterOnPosition pos={position} />
+      <SearchControlComp />
+      <LocationMarker />
+    </MapContainer>
+  )
+}
+
 export default function Messages() {
   // For location modal
   const [showLocationModal, setShowLocationModal] = useState(false)
@@ -71,6 +172,39 @@ export default function Messages() {
     const lng = parseFloat(m[2])
     if (Number.isNaN(lat) || Number.isNaN(lng)) return null
     return { lat, lng }
+  }
+
+  const TRUSTED_DOMAINS = [
+     'amazon.in', 'amazon.com', 'flipkart.com', 'nike.com', 'adidas.co.in', 
+     'puma.com', 'decathlon.in', 'myntra.com', 'google.com/maps', 'maps.google.com',
+     'skechers.in', 'asics.com', 'reebok.com', 'underarmour.com', 'sportskeeda.com'
+   ]
+
+  const renderMessageContent = (text: string, isMe: boolean) => {
+    // Regex to find URLs
+    const urlRegex = /(https?:\/\/[^\s]+)/g
+    const parts = text.split(urlRegex)
+    
+    return parts.map((part, i) => {
+      if (part.match(urlRegex)) {
+        try {
+          const url = new URL(part)
+          const isTrusted = TRUSTED_DOMAINS.some(domain => 
+            url.hostname.endsWith(domain) || url.href.includes(domain)
+          )
+          
+          if (isTrusted) {
+            return (
+              <a key={i} href={part} target="_blank" rel="noopener noreferrer" 
+                className={`underline font-medium break-all ${isMe ? 'text-white' : 'text-emerald-600'}`}>
+                {part}
+              </a>
+            )
+          }
+        } catch { /* invalid URL, treat as text */ }
+      }
+      return <span key={i}>{part}</span>
+    })
   }
 
   const { user, isAuthenticated, loading, backendUserId: cachedBackendUserId } = useAuth()
@@ -141,17 +275,11 @@ export default function Messages() {
     if (!backendUserId) return
     try {
       const { data } = await api.get('/games/mine')
-      const now = Date.now()
       const groups: GroupChat[] = (data as any[])
         .filter((g: any) => {
-          if (g.status === 'CANCELLED') return false
-          // Hide games that have ended (startTime + duration + 30 min buffer)
-          if (g.startTime) {
-            const start = new Date(g.startTime).getTime()
-            const durMs = ((g.durationMinutes ?? 60) + 30) * 60_000
-            if (now > start + durMs) return false
-          }
-          return true
+          // Absolute visibility rule: "not visible to users in all cases of game completion or deletion"
+          // Hide immediately if status is not OPEN
+          return g.status === 'OPEN'
         })
         .map((g: any) => ({
           gameId: g.id,
@@ -168,21 +296,31 @@ export default function Messages() {
   }, [backendUserId, chatMode, loadGroupChats])
 
   const openGroupChat = async (group: GroupChat) => {
+    setActiveConvo(null)
     setActiveGroup(group)
     setLoadingGroup(true)
+    setGameEnded(false)
+    setGameEndedReason('')
     try {
-      const [msgsRes, membersRes] = await Promise.all([
+      const [msgsRes, membersRes, gameRes] = await Promise.all([
         api.get(`/messages/group/${group.gameId}`),
         api.get(`/messages/group/${group.gameId}/members`),
+        api.get(`/games/${group.gameId}`),
       ])
       setGroupMessages(msgsRes.data)
       setGroupMembers(membersRes.data)
+      
+      const game = gameRes.data
+      if (game.status === 'COMPLETED' || game.status === 'CANCELLED') {
+        setGameEnded(true)
+        setGameEndedReason(game.status === 'CANCELLED' ? 'This game was cancelled. New messages are disabled.' : 'This game has ended. New messages are disabled.')
+      }
     } catch { toast.error('Failed to load group chat') }
     finally { setLoadingGroup(false) }
   }
 
-  const sendGroupMessage = async () => {
-    const content = newGroupMsg.trim()
+  const sendGroupMessage = async (contentOverride?: string) => {
+    const content = contentOverride || newGroupMsg.trim()
     if (!content || !backendUserId || !activeGroup) return
     setSendingGroup(true)
     const optimistic: Message = {
@@ -197,7 +335,7 @@ export default function Messages() {
       gameId: activeGroup.gameId,
     }
     setGroupMessages(prev => [...prev, optimistic])
-    setNewGroupMsg('')
+    if (!contentOverride) setNewGroupMsg('')
     try {
       const { data: saved } = await api.post(`/messages/group/${activeGroup.gameId}/send`, {
         senderId: backendUserId, content,
@@ -207,7 +345,7 @@ export default function Messages() {
       if (realMsg) setGroupMessages(prev => prev.map(m => m.id === optimistic.id ? { ...realMsg } : m))
     } catch (err: any) {
       setGroupMessages(prev => prev.filter(m => m.id !== optimistic.id))
-      setNewGroupMsg(content)
+      if (!contentOverride) setNewGroupMsg(content)
       const errMsg = err?.response?.data?.error || err?.response?.data?.message || ''
       if (errMsg.toLowerCase().includes('ended') || errMsg.toLowerCase().includes('cancelled')) {
         toast.error('Group chat disabled \u2014 the game has ended or was cancelled.')
@@ -280,14 +418,24 @@ export default function Messages() {
       // Mark as read
       await api.post(`/messages/read/${backendUserId}/${other.otherUserId}`)
       setInbox(prev => prev.map(i => i.otherUserId === other.otherUserId ? { ...i, unreadCount: 0 } : i))
-      // DMs are always allowed — no game lifecycle restrictions
-      setAllowedToMessage(true)
+      
+      // Check if they still share an active game
+      const { data: contacts } = await api.get(`/messages/contacts/${backendUserId}`)
+      const isStillContact = contacts.some((c: any) => c.otherUserId === other.otherUserId)
+      if (!isStillContact) {
+        setGameEnded(true)
+        setGameEndedReason('Chat ended \u2014 you can only message players from an active game.')
+        setAllowedToMessage(false)
+      } else {
+        setAllowedToMessage(true)
+      }
     } catch { /* ignore */ }
     finally { setLoadingConvo(false) }
   }, [backendUserId])
 
   // Open conversation
   const openConvo = (entry: InboxEntry) => {
+    setActiveGroup(null)
     setActiveConvo(entry)
     loadConvo(entry)
   }
@@ -330,8 +478,8 @@ export default function Messages() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, groupMessages])
 
-  const sendMessage = async () => {
-    const content = newMsg.trim()
+  const sendMessage = async (contentOverride?: string) => {
+    const content = contentOverride || newMsg.trim()
     if (!content || !backendUserId || !activeConvo) return
     if (!allowedToMessage) { toast.error('Messaging disabled for this game until you are accepted.'); return }
     setSending(true)
@@ -346,7 +494,7 @@ export default function Messages() {
       createdAt: new Date().toISOString()
     }
     setMessages(prev => [...prev, optimistic])
-    setNewMsg('')
+    if (!contentOverride) setNewMsg('')
     try {
       // DMs are game-independent — always send with null gameId
       const { data: saved } = await api.post('/messages/send', {
@@ -360,14 +508,31 @@ export default function Messages() {
       loadInbox()
     } catch (err: any) {
       setMessages(prev => prev.filter(m => m.id !== optimistic.id))
-      setNewMsg(content)
+      if (!contentOverride) setNewMsg(content)
       const errMsg = err?.response?.data?.error || err?.response?.data?.message || ''
       if (errMsg.toLowerCase().includes('active game')) {
         toast.error('Chat ended — you can only message players from an active game.')
         setAllowedToMessage(false)
       }
     }
-    setSending(false)
+ finally { setSending(false) }
+  }
+
+  const confirmSendLocation = async () => {
+    if (!locationCoords) return
+    const mapsLink = `https://maps.google.com/?q=${locationCoords.lat},${locationCoords.lng}`
+    const finalContent = locationAddress ? `${locationAddress}\n${mapsLink}` : mapsLink
+    
+    if (activeGroup) {
+      setNewGroupMsg(finalContent)
+      setShowLocationModal(false)
+      // Small timeout to allow state update before sending
+      setTimeout(() => sendGroupMessage(finalContent), 100)
+    } else if (activeConvo) {
+      setNewMsg(finalContent)
+      setShowLocationModal(false)
+      setTimeout(() => sendMessage(finalContent), 100)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -458,18 +623,18 @@ export default function Messages() {
                 {myRequests?.requestsToMyGames?.length ? myRequests.requestsToMyGames.map((r: any) => (
                   <div key={r.id} className="flex items-start justify-between gap-2 mb-2 p-2 rounded border">
                     <div>
-                      <div className="text-sm font-medium">{r.requester?.name || r.requester?.email}</div>
-                      <div className="text-xs text-textSecondary">Game: {r.game?.title || `#${r.game?.id}`}</div>
+                      <div className="text-sm font-medium">{r.requesterName || 'Unknown'}</div>
+                      <div className="text-xs text-textSecondary">Game: {r.gameTitle || `#${r.gameId}`}</div>
                       <div className="text-xs mt-1">{r.message}</div>
                     </div>
                     <div className="flex flex-col gap-2">
-                      {selectedGameId && r.game?.id === selectedGameId && (
-                        <div className="text-[11px] px-2 py-0.5 bg-accentLight rounded text-accent text-xs">Selected game</div>
+                      {selectedGameId && r.gameId === selectedGameId && (
+                        <div className="text-[11px] px-2 py-0.5 bg-accentLight rounded text-accent">Selected game</div>
                       )}
                       {r.status === 'PENDING' && (
                         <>
-                          <button onClick={async () => { try { await api.post(`/games/${r.game.id}/requests/${r.id}/accept`); await loadMyRequests(); await loadInbox(); toast.success('Accepted'); } catch (e:any) { toast.error(e.response?.data?.error || 'Failed') } }} className="btn-primary text-sm">Accept</button>
-                          <button onClick={async () => { try { await api.post(`/games/${r.game.id}/requests/${r.id}/reject`); await loadMyRequests(); toast.info('Rejected'); } catch (e:any) { toast.error(e.response?.data?.error || 'Failed') } }} className="btn-secondary text-sm">Reject</button>
+                          <button onClick={async () => { try { await api.post(`/games/${r.gameId}/requests/${r.id}/accept`); await loadMyRequests(); await loadInbox(); toast.success('Accepted'); } catch (e: any) { toast.error(e.response?.data?.error || 'Failed') } }} className="btn-primary text-sm">Accept</button>
+                          <button onClick={async () => { try { await api.post(`/games/${r.gameId}/requests/${r.id}/reject`); await loadMyRequests(); toast.info('Rejected'); } catch (e: any) { toast.error(e.response?.data?.error || 'Failed') } }} className="btn-secondary text-sm">Reject</button>
                         </>
                       )}
                       {r.status === 'ACCEPTED' && <span className="text-sm text-emerald-600">Accepted</span>}
@@ -479,13 +644,13 @@ export default function Messages() {
                 )) : <p className="text-xs text-textSecondary">No incoming requests</p>}
 
                 <h3 className="text-sm font-semibold mt-3 mb-2">My Requests</h3>
-                {myRequests?.requestsByMe?.length ? myRequests.requestsByMe.map((r:any) => (
+                {myRequests?.requestsByMe?.length ? myRequests.requestsByMe.map((r: any) => (
                   <div key={r.id} className="flex items-center justify-between gap-2 mb-2 p-2 rounded border">
                     <div>
-                      <div className="text-sm">Game: {r.game?.title || `#${r.game?.id}`}</div>
+                      <div className="text-sm">Game: {r.gameTitle || `#${r.gameId}`}</div>
                       <div className="text-xs text-textSecondary">Status: {r.status}</div>
                     </div>
-                    <div>{r.status === 'PENDING' ? <span className="text-sm text-rose-600">Pending</span> : r.status === 'ACCEPTED' ? <span className="text-sm text-emerald-600">Accepted</span> : <span className="text-sm text-rose-600">Rejected</span>}</div>
+                    <div>{r.status === 'PENDING' ? <span className="text-sm text-amber-600">Pending</span> : r.status === 'ACCEPTED' ? <span className="text-sm text-emerald-600">Accepted</span> : <span className="text-sm text-rose-600">Rejected</span>}</div>
                   </div>
                 )) : <p className="text-xs text-textSecondary">No requests made</p>}
               </div>
@@ -586,6 +751,12 @@ export default function Messages() {
               </div>
 
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                {gameEnded && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2 mb-4">
+                    <FiAlertTriangle className="text-amber-600 flex-shrink-0" />
+                    <p className="text-xs text-amber-700 font-medium">{gameEndedReason}</p>
+                  </div>
+                )}
                 {loadingGroup ? (
                   <div className="flex items-center justify-center py-12">
                     <FiLoader className="w-6 h-6 text-accent animate-spin" />
@@ -610,7 +781,18 @@ export default function Messages() {
                             {!isMe && <span className="text-[10px] text-accent font-medium px-1">{msg.senderName}</span>}
                             <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
                               isMe ? 'bg-accent text-white rounded-br-sm' : 'bg-surface text-textPrimary rounded-bl-sm border border-border'
-                            }`}>{msg.content}</div>
+                            }`}>{renderMessageContent(msg.content, isMe)}</div>
+                            {parseMapsLink(msg.content) && (
+                              <div className="w-full mt-1 rounded-xl overflow-hidden border border-border">
+                                <MapContainer center={parseMapsLink(msg.content)!} zoom={15} className="w-full h-40">
+                                  <TileLayer
+                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                    attribution="&copy; OpenStreetMap contributors"
+                                  />
+                                  <Marker position={parseMapsLink(msg.content)!} icon={msgIcon} />
+                                </MapContainer>
+                              </div>
+                            )}
                             <span className="text-[11px] text-textSecondary px-1">{formatTime(msg.createdAt)}</span>
                           </div>
                         </motion.div>
@@ -623,12 +805,18 @@ export default function Messages() {
 
               <div className="px-4 py-3 border-t border-border flex-shrink-0 bg-white">
                 <div className="flex items-end gap-2">
+                  <button onClick={() => { setShowLocationModal(true); setLocationCoords(null); setLocationAddress('') }}
+                    className="flex-shrink-0 w-10 h-10 rounded-xl bg-surface hover:bg-border/30 border border-border flex items-center justify-center transition-colors text-emerald-500 hover:text-emerald-600"
+                    title="Send Location">
+                    <FiMapPin className="w-5 h-5" />
+                  </button>
                   <textarea value={newGroupMsg} onChange={e => setNewGroupMsg(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendGroupMessage() } }}
-                    placeholder="Message the group..." rows={1}
-                    className="flex-1 resize-none px-4 py-2.5 text-sm bg-surface rounded-xl border border-border focus:outline-none focus:border-accent/50 text-textPrimary placeholder:text-textSecondary max-h-28 overflow-y-auto"
+                    placeholder={gameEnded ? 'This game has ended. New messages are disabled.' : 'Message the group...'} rows={1}
+                    disabled={gameEnded}
+                    className="flex-1 resize-none px-4 py-2.5 text-sm bg-surface rounded-xl border border-border focus:outline-none focus:border-accent/50 text-textPrimary placeholder:text-textSecondary max-h-28 overflow-y-auto disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ minHeight: '42px' }} />
-                  <button onClick={sendGroupMessage} disabled={!newGroupMsg.trim() || sendingGroup}
+                  <button onClick={() => sendGroupMessage()} disabled={!newGroupMsg.trim() || sendingGroup || gameEnded}
                     className="flex-shrink-0 w-10 h-10 rounded-xl bg-accent hover:bg-accentDark disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors">
                     {sendingGroup ? <FiLoader className="w-4 h-4 text-white animate-spin" /> : <FiSend className="w-4 h-4 text-white" />}
                   </button>
@@ -677,6 +865,14 @@ export default function Messages() {
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+                {gameEnded && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2 mb-4">
+                    <FiAlertTriangle className="text-amber-600 flex-shrink-0" />
+                    <p className="text-xs text-amber-700 font-medium">
+                      {gameEndedReason || 'This game has ended. New messages are disabled.'}
+                    </p>
+                  </div>
+                )}
                 {loadingConvo ? (
                   <div className="flex items-center justify-center py-12">
                     <FiLoader className="w-6 h-6 text-accent animate-spin" />
@@ -709,7 +905,7 @@ export default function Messages() {
                                 ? 'bg-accent text-white rounded-br-sm'
                                 : 'bg-surface text-textPrimary rounded-bl-sm border border-border'
                             }`}>
-                              {msg.content}
+                              {renderMessageContent(msg.content, isMe)}
                             </div>
                             {loc && (
                               <div className="w-full mt-1 rounded-xl overflow-hidden border border-border">
@@ -735,106 +931,72 @@ export default function Messages() {
               {/* Message Input */}
               <div className="px-4 py-3 border-t border-border flex-shrink-0 bg-white">
                 <div className="flex items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setShowLocationModal(true); setLocationCoords(null); setLocationAddress('') }}
+                    disabled={!allowedToMessage}
+                    className="flex-shrink-0 w-10 h-10 rounded-xl bg-surface hover:bg-border/30 border border-border flex items-center justify-center transition-colors text-emerald-500 hover:text-emerald-600"
+                    title="Send Location"
+                  >
+                    <FiMapPin className="w-5 h-5" />
+                  </button>
                   <textarea
                     value={newMsg}
                     onChange={e => setNewMsg(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder={!allowedToMessage ? 'Messaging disabled until request accepted.' : 'Type a message... (Enter to send)'}
+                    placeholder={gameEnded ? 'This game has ended. New messages are disabled.' : !allowedToMessage ? 'Messaging disabled until request accepted.' : 'Type a message... (Enter to send)'}
                     rows={1}
-                    disabled={!allowedToMessage}
+                    disabled={!allowedToMessage || gameEnded}
                     className="flex-1 resize-none px-4 py-2.5 text-sm bg-surface rounded-xl border border-border focus:outline-none focus:border-accent/50 text-textPrimary placeholder:text-textSecondary max-h-28 overflow-y-auto disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ minHeight: '42px' }}
                   />
                   <button
-                    onClick={sendMessage}
-                    disabled={!newMsg.trim() || sending || !allowedToMessage}
+                    onClick={() => sendMessage()}
+                    disabled={!newMsg.trim() || sending || !allowedToMessage || gameEnded}
                     className="flex-shrink-0 w-10 h-10 rounded-xl bg-accent hover:bg-accentDark disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
                   >
                     {sending
                       ? <FiLoader className="w-4 h-4 text-white animate-spin" />
                       : <FiSend className="w-4 h-4 text-white" />}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowLocationModal(true)}
-                    disabled={!allowedToMessage}
-                    className="flex-shrink-0 w-10 h-10 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-colors ml-1"
-                    title="Send Location"
-                  >
-                    <FiMapPin className="w-5 h-5 text-white" />
-                  </button>
                 </div>
               </div>
-
-              {/* Location Modal */}
-              {showLocationModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-                  <div className="bg-white rounded-lg shadow-lg p-4 max-w-xl w-full relative">
-                    <button className="absolute top-2 right-2 text-lg" onClick={() => setShowLocationModal(false)}>&times;</button>
-                    <h2 className="text-lg font-semibold mb-2">Share Location</h2>
-                    <ProfileLocationPicker
-                value={locationCoords || undefined}
-                onChange={(latlng, addr) => {
-                  setLocationCoords(latlng)
-                  setLocationAddress(addr)
-                }}
-              />
-                    <div className="mt-3 flex gap-2">
-                      <input
-                        type="text"
-                        className="input-field flex-1"
-                        placeholder="Address (auto-filled)"
-                        value={locationAddress}
-                        onChange={e => setLocationAddress(e.target.value)}
-                        readOnly
-                      />
-                      <button
-                        className="btn-primary"
-                        disabled={!locationCoords}
-                        onClick={async () => {
-                          if (!locationCoords || !backendUserId || !activeConvo) return
-                          const mapsUrl = `https://maps.google.com/?q=${locationCoords.lat},${locationCoords.lng}`
-                          const content = `${locationAddress ? locationAddress + '\n' : ''}${mapsUrl}`
-                          setShowLocationModal(false)
-                          // Send directly with content to avoid stale state
-                          setSending(true)
-                          const optimistic: Message = {
-                            id: Date.now(),
-                            senderId: backendUserId,
-                            senderName: user?.displayName || 'You',
-                            senderPhotoUrl: user?.photoURL || null,
-                            receiverId: activeConvo.otherUserId,
-                            content,
-                            isRead: false,
-                            createdAt: new Date().toISOString()
-                          }
-                          setMessages(prev => [...prev, optimistic])
-                          try {
-                            await api.post('/messages/send', {
-                              senderId: backendUserId,
-                              receiverId: activeConvo.otherUserId,
-                              content,
-                              gameId: null
-                            })
-                            loadInbox()
-                          } catch (err: any) {
-                            setMessages(prev => prev.filter(m => m.id !== optimistic.id))
-                            const errMsg = err?.response?.data?.error || ''
-                            if (errMsg.toLowerCase().includes('active game')) {
-                              toast.error('Chat ended \u2014 you can only message players from an active game.')
-                              setAllowedToMessage(false)
-                            }
-                          }
-                          setSending(false)
-                        }}
-                      >Send</button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </>
           )}
         </div>
+
+        {/* ── Location Modal ── */}
+        {showLocationModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[2000] p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full relative overflow-hidden">
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h2 className="text-lg font-bold text-textPrimary">Share Location</h2>
+                <button className="p-2 hover:bg-gray-100 rounded-full transition-colors" onClick={() => setShowLocationModal(false)}>&times;</button>
+              </div>
+              
+              <div className="relative">
+                <InlineLocationPicker value={locationCoords || undefined} onChange={(c, a) => { setLocationCoords(c); setLocationAddress(a) }} />
+              </div>
+
+              <div className="p-5 bg-gray-50 space-y-4">
+                {locationAddress && (
+                  <div className="flex items-start gap-3 bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                    <FiMapPin className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-textPrimary leading-relaxed">{locationAddress}</p>
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <button onClick={() => setShowLocationModal(false)} className="flex-1 py-3 rounded-xl bg-white border border-gray-200 text-textSecondary font-semibold hover:bg-gray-50 transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={confirmSendLocation} className="flex-1 btn-primary py-3 rounded-xl font-bold shadow-lg shadow-accent/20">
+                    Send Location
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

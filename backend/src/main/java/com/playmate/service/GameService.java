@@ -10,6 +10,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.playmate.dto.CreateGameRequest;
 import com.playmate.dto.GameResponse;
 import com.playmate.entity.Game;
-import com.playmate.entity.GameRequest;
 import com.playmate.entity.Notification;
 import com.playmate.entity.SkillLevel;
 import com.playmate.entity.SportType;
@@ -27,10 +28,13 @@ import com.playmate.exception.GameNotFoundException;
 import com.playmate.exception.UserNotFoundException;
 import com.playmate.repository.GameRepository;
 import com.playmate.repository.GameRequestRepository;
+import com.playmate.repository.RatingRepository;
 import com.playmate.repository.UserRepository;
 
 @Service
 public class GameService {
+
+    private static final Logger log = LoggerFactory.getLogger(GameService.class);
 
     @Autowired
     private GameRepository gameRepository;
@@ -40,6 +44,9 @@ public class GameService {
 
     @Autowired
     private GameRequestRepository gameRequestRepository;
+
+    @Autowired
+    private RatingRepository ratingRepository;
 
     @Autowired
     private NotificationService notificationService;
@@ -83,10 +90,19 @@ public class GameService {
         game.setDurationMinutes(Objects.requireNonNullElse(request.getDurationMinutes(), 60));
         int maxP = Objects.requireNonNullElse(request.getTotalSlots(), 10);
         if (maxP > 40) maxP = 40; // Hard cap for group-chat sanity
-        game.setMaxPlayers(maxP);
+        
         // Use alreadyConfirmed from creator (includes themselves + friends already coming)
         int confirmed = Objects.requireNonNullElse(request.getAlreadyConfirmed(), 1);
-        if (confirmed < 1) confirmed = 1;
+        
+        // Validation
+        if (confirmed >= maxP) {
+            throw new RuntimeException("Confirmed players cannot be greater than or equal to total slots.");
+        }
+        if (game.getDurationMinutes() != null && game.getDurationMinutes() < 20) {
+            throw new RuntimeException("Game duration must be at least 20 minutes.");
+        }
+        
+        game.setMaxPlayers(maxP);
         game.setCurrentPlayers(confirmed);
         // Add host user as an accepted participant so messaging and participant checks work
         game.getParticipants().add(user);
@@ -112,6 +128,12 @@ public class GameService {
         }
 
         Game saved = gameRepository.save(game);
+        
+        // Host reliability: increment gamesCreated
+        user.setGamesCreated(Objects.requireNonNullElse(user.getGamesCreated(), 0) + 1);
+        updateHostReliability(user);
+        userRepository.save(user);
+
         return toGameResponse(saved);
     }
 
@@ -132,6 +154,7 @@ public class GameService {
     }
 
     /** Filtered game discovery with all filter criteria applied server-side */
+    @Transactional(readOnly = true)
     public List<GameResponse> discoverGames(String sportFilter, String skillLevelFilter,
             String from, String to, Double lat, Double lng, Double radiusKm,
             boolean availableOnly, boolean sortByDistance) {
@@ -171,13 +194,21 @@ public class GameService {
         }
 
         // Date range filter
-        if (from != null && !from.isBlank()) {
-            LocalDateTime fromDt = LocalDateTime.parse(from);
-            stream = stream.filter(g -> g.getGameDateTime() != null && !g.getGameDateTime().isBefore(fromDt));
+        if (from != null && !from.isBlank() && !"undefined".equals(from) && !"null".equals(from)) {
+            try {
+                LocalDateTime fromDt = LocalDateTime.parse(from);
+                stream = stream.filter(g -> g.getGameDateTime() != null && !g.getGameDateTime().isBefore(fromDt));
+            } catch (java.time.format.DateTimeParseException e) {
+                log.warn("Invalid 'from' date format: {}", from);
+            }
         }
-        if (to != null && !to.isBlank()) {
-            LocalDateTime toDt = LocalDateTime.parse(to);
-            stream = stream.filter(g -> g.getGameDateTime() != null && !g.getGameDateTime().isAfter(toDt));
+        if (to != null && !to.isBlank() && !"undefined".equals(to) && !"null".equals(to)) {
+            try {
+                LocalDateTime toDt = LocalDateTime.parse(to);
+                stream = stream.filter(g -> g.getGameDateTime() != null && !g.getGameDateTime().isAfter(toDt));
+            } catch (java.time.format.DateTimeParseException e) {
+                log.warn("Invalid 'to' date format: {}", to);
+            }
         }
 
         List<GameResponse> responses = stream.map(this::toGameResponse).collect(Collectors.toList());
@@ -222,6 +253,7 @@ public class GameService {
     }
 
     /** Games where the user is host or accepted participant — visible regardless of deadline */
+    @Transactional(readOnly = true)
     public List<GameResponse> getMyGames(Long userId) {
         LocalDateTime window = LocalDateTime.now().minusHours(4);
         return gameRepository
@@ -238,7 +270,7 @@ public class GameService {
                             g.getDurationMinutes() != null ? g.getDurationMinutes().longValue() : 60);
                     return LocalDateTime.now().isBefore(end);
                 })
-                .map(this::toGameResponse)
+                .map(g -> toGameResponse(g, userId))
                 .collect(Collectors.toList());
     }
 
@@ -250,9 +282,13 @@ public class GameService {
     }
 
     public GameResponse getGameById(Long id) {
+        return getGameById(id, null);
+    }
+
+    public GameResponse getGameById(Long id, Long currentUserId) {
         Game game = gameRepository.findById(id)
                 .orElseThrow(() -> new GameNotFoundException("Game not found with id: " + id));
-        return toGameResponse(game);
+        return toGameResponse(game, currentUserId);
     }
 
     /** Check whether a given user is a participant of the game (accepted) */
@@ -314,24 +350,61 @@ public class GameService {
             throw new RuntimeException("Only the host can cancel this game");
         }
 
+        LocalDateTime now = LocalDateTime.now();
+        
+        // CASE 4: DELETE AFTER GAME START
+        if (now.isAfter(game.getGameDateTime())) {
+            // Convert action to archive, do not cancel
+            game.setStatus(Game.GameStatus.ARCHIVED);
+            game.setUpdatedAt(now);
+            gameRepository.save(game);
+            
+            // Absolute deletion as per user requirement
+            messageService.purgeGameMessages(gameId);
+            return;
+        }
+
+        // CASE 1 & 2: DELETE BEFORE OR CLOSE TO START
         game.setIsCancelled(true);
-        game.setUpdatedAt(LocalDateTime.now());
+        game.setStatus(Game.GameStatus.CANCELLED);
+        game.setCancelledAt(now);
+        game.setUpdatedAt(now);
         gameRepository.save(game);
 
-        // Purge all game-related messages (group + DMs between participants with no other active game)
-        messageService.purgeGameMessages(gameId);
+        // Host reliability tracking
+        User host = userRepository.findById(userId).orElse(null);
+        if (host != null) {
+            host.setGamesCancelled(Objects.requireNonNullElse(host.getGamesCancelled(), 0) + 1);
+            
+            // CASE 2: LAST-MINUTE CANCELLATION (within 2 hours)
+            if (game.getGameDateTime().minusHours(2).isBefore(now)) {
+                host.setLastMinuteCancellations(Objects.requireNonNullElse(host.getLastMinuteCancellations(), 0) + 1);
+            }
+            
+            updateHostReliability(host);
+            userRepository.save(host);
+        }
 
-        // Notify all participants
-        for (User participant : game.getParticipants()) {
+        // CASE 3: DELETE WITH NO PARTICIPANTS
+        if (game.getParticipants() == null || game.getParticipants().isEmpty()) {
+            messageService.purgeGameMessages(gameId);
+            return;
+        }
+
+        // Notify participants
+        for (User p : game.getParticipants()) {
             notificationService.createNotification(
-                    participant.getId(),
-                    Notification.NotificationType.GAME_CANCELLED,
-                    "Game Cancelled",
-                    game.getSportType() + " game on " + game.getGameDateTime() + " has been cancelled",
-                    game.getId(),
-                    "GAME"
+                p.getId(),
+                Notification.NotificationType.GAME_CANCELLED,
+                "Game Cancelled",
+                "The " + game.getSportType() + " game '" + game.getTitle() + "' has been cancelled by the host.",
+                gameId,
+                "GAME"
             );
         }
+
+        // Absolute deletion as per user requirement: "should be delated and not visible and not in DB"
+        messageService.purgeGameMessages(gameId);
     }
 
     @Transactional
@@ -341,27 +414,57 @@ public class GameService {
         if (!game.getCreatedBy().equals(userId)) {
             throw new RuntimeException("Only the host can delete this game");
         }
-        // Notify all participants before deleting
+        
+        LocalDateTime now = LocalDateTime.now();
+        
+        // Soft delete: Mark as cancelled/deleted so history and requests persist for feedback/admin
+        game.setIsCancelled(true);
+        game.setStatus(Game.GameStatus.CANCELLED);
+        game.setUpdatedAt(now);
+        gameRepository.save(game);
+
+        // Notify all participants
         for (User participant : game.getParticipants()) {
             if (!participant.getId().equals(userId)) {
                 notificationService.createNotification(
                         participant.getId(),
                         Notification.NotificationType.GAME_CANCELLED,
-                        "Game Deleted",
+                        "Game Removed",
                         game.getSportType() + " game \"" + game.getTitle() + "\" has been removed by the host",
                         game.getId(),
                         "GAME"
                 );
             }
         }
-        // Remove related requests first
-        gameRequestRepository.deleteAll(gameRequestRepository.findByGameId(gameId));
-        // Purge all game-related messages before deleting the game
+        
+        // Absolute deletion as per user requirement: "should be delated and not visible and not in DB"
         messageService.purgeGameMessages(gameId);
-        gameRepository.delete(game);
+    }
+
+    private void updateHostReliability(User host) {
+        int created = Objects.requireNonNullElse(host.getGamesCreated(), 0);
+        int cancelled = Objects.requireNonNullElse(host.getGamesCancelled(), 0);
+
+        if (created == 0) {
+            host.setHostReliabilityScore(BigDecimal.valueOf(100.0));
+            return;
+        }
+
+        // Penalty for last minute cancellations (extra weight?)
+        // Basic formula provided: ((created - cancelled) * 100.0) / created
+        double score = ((created - cancelled) * 100.0) / created;
+        
+        // Ensure score doesn't go below 0
+        if (score < 0) score = 0;
+
+        host.setHostReliabilityScore(BigDecimal.valueOf(score).setScale(2, java.math.RoundingMode.HALF_UP));
     }
 
     private GameResponse toGameResponse(Game game) {
+        return toGameResponse(game, null);
+    }
+
+    private GameResponse toGameResponse(Game game, Long currentUserId) {
         GameResponse response = new GameResponse();
         response.setId(game.getId());
         response.setTitle(game.getTitle());
@@ -375,7 +478,7 @@ public class GameService {
         int pending = 0;
         try {
             if (game.getId() != null) {
-                pending = gameRequestRepository.findByGameIdAndStatus(game.getId(), GameRequest.RequestStatus.PENDING).size();
+                pending = gameRequestRepository.findByGameIdAndStatus(game.getId(), com.playmate.entity.GameRequest.RequestStatus.PENDING).size();
             }
         } catch (Exception e) {
             // fallback to zero pending
@@ -413,6 +516,12 @@ public class GameService {
         response.setParticipantIds(game.getParticipants() != null
                 ? game.getParticipants().stream().map(User::getId).filter(id -> !id.equals(game.getCreatedBy())).collect(java.util.stream.Collectors.toList())
                 : java.util.Collections.emptyList());
+
+        // Set hasRated if user ID is provided
+        if (currentUserId != null) {
+            boolean rated = ratingRepository.existsByRaterIdAndGameId(currentUserId, game.getId());
+            response.setHasRated(rated);
+        }
 
         // Compute game status
         String status;

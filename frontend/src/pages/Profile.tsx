@@ -1183,20 +1183,19 @@ export default function Profile() {
             <Card title="Overall Statistics" icon={FiStar}>
               <div className="space-y-1">
                 <StatRow label="Overall Rating" value={backendUser?.averageRating ? `${backendUser.averageRating} / 5.0` : 'No ratings yet'} />
-                <StatRow label="Total Games" value={String(backendUser?.totalGamesPlayed || 0)} />
+                <StatRow label="Total Games Played" value={String(backendUser?.totalGamesPlayed || 0)} />
                 <StatRow label="No-Shows" value={String(backendUser?.noShowCount || 0)} />
+                <StatRow label="Play Again %" value={backendUser?.playAgainPercentage ? `${backendUser.playAgainPercentage}%` : '0%'} highlight />
               </div>
             </Card>
 
             {/* Activity */}
-            <Card title="Activity Stats" icon={FiActivity}>
+            <Card title="Activity & Reliability" icon={FiActivity}>
               <div className="space-y-1">
-                <StatRow label="Games Played" value={String(backendUser?.totalGamesPlayed || 0)} />
-                <StatRow label="Reliability" value={
-                  backendUser?.totalGamesPlayed
-                    ? `${Math.round(((backendUser.totalGamesPlayed - (backendUser.noShowCount || 0)) / backendUser.totalGamesPlayed) * 100)}%`
-                    : '—'
-                } />
+                <StatRow label="Games Created" value={String(backendUser?.gamesCreated || 0)} />
+                <StatRow label="Games Cancelled" value={String(backendUser?.gamesCancelled || 0)} />
+                <StatRow label="Last Minute Cancels" value={String(backendUser?.lastMinuteCancellations || 0)} />
+                <StatRow label="Host Reliability" value={backendUser?.hostReliabilityScore ? `${backendUser.hostReliabilityScore}%` : '100%'} highlight />
                 <StatRow label="Account Status" value={backendUser?.isActive ? 'Active' : 'Inactive'} />
               </div>
             </Card>

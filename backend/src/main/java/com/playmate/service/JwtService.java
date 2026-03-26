@@ -18,11 +18,8 @@ import io.jsonwebtoken.security.Keys;
 @Service
 public class JwtService {
 
-    private final String secretKey;
-
-    public JwtService(org.springframework.core.env.Environment environment) {
-        this.secretKey = environment.getProperty("jwt.secret");
-    }
+    @Value("${jwt.secret:default_secret_key_at_least_32_chars_long_for_hs256}")
+    private String secretKey;
 
     @Value("${jwt.expiration:86400000}") // 24 hours default
     private long jwtExpiration;
@@ -31,7 +28,12 @@ public class JwtService {
     private long refreshExpiration;
 
     private SecretKey getSigningKey() {
-        return Keys.hmacShaKeyFor(secretKey.getBytes());
+        // Handle cases where the property might be literally "${JWT_SECRET}" if unresolved
+        String key = secretKey;
+        if (key == null || key.isBlank() || key.contains("${")) {
+            key = "default_secret_key_at_least_32_chars_long_for_hs256";
+        }
+        return Keys.hmacShaKeyFor(key.getBytes());
     }
 
     public String extractUsername(String token) {

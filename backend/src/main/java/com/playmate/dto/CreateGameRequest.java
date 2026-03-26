@@ -20,7 +20,8 @@ public class CreateGameRequest {
     @NotNull(message = "Start time is required")
     private String startTime;
 
-    @Min(value = 30, message = "Minimum 30 minutes")
+    @Min(value = 20, message = "Minimum 20 minutes")
+    @jakarta.validation.constraints.Max(value = 360, message = "Maximum game duration is 6 hours")
     private Integer durationMinutes = 60;
 
     @Min(value = 2, message = "Minimum 2 players")
